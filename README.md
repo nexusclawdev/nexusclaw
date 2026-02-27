@@ -739,8 +739,7 @@ limitations under the License.
 ## 🔗 Links
 
 - **GitHub Repository:** [github.com/nexusclawdev/nexusclaw](https://github.com/nexusclawdev/nexusclaw)
-- **Documentation:** [docs.nexusclaw.dev](https://docs.nexusclaw.dev)
-- **Discord Community:** [discord.gg/nexusclaw](https://discord.gg/nexusclaw)
+- **Discord Community:** [discord.gg/Uq2pqhdkFW](https://discord.gg/Uq2pqhdkFW)
 - **Twitter:** [@nexusclaw](https://twitter.com/nexusclaw)
 - **Issue Tracker:** [github.com/nexusclawdev/nexusclaw/issues](https://github.com/nexusclawdev/nexusclaw/issues)
 
