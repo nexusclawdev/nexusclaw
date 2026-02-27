@@ -41,6 +41,43 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 We actively welcome your pull requests! See the [Pull Request Process](#pull-request-process) section below.
 
+### Contributing Skills
+
+Want to add a new skill to NexusClaw? We'd love to have it! Here's how:
+
+1. **Create a new directory** in `skills/` with your skill name (use kebab-case)
+2. **Add two files**:
+   - `skill.json` - Metadata and AI prompts
+   - `SKILL.md` - Documentation and examples
+
+**skill.json structure:**
+```json
+{
+  "name": "Your Skill Name",
+  "description": "Brief description",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "category": "productivity|development|automation|analytics|content",
+  "tags": ["tag1", "tag2"],
+  "capabilities": [
+    "What it can do",
+    "Another capability"
+  ],
+  "prompts": {
+    "action_name": "Detailed AI prompt with {variables}"
+  }
+}
+```
+
+**Examples of great skills:**
+- Email Assistant (`skills/email-assistant/`)
+- Code Reviewer (`skills/code-reviewer/`)
+- Content Writer (`skills/content-writer/`)
+
+Submit your skill via Pull Request and we'll review it!
+
+---
+
 ## 🛠️ Development Setup
 
 ### Prerequisites
