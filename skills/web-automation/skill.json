@@ -1,0 +1,15 @@
+{
+  "name": "Web Automation",
+  "description": "Automate browser tasks, fill forms, take screenshots, and interact with websites",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "automation",
+  "tags": ["browser", "automation", "playwright", "web-scraping"],
+  "capabilities": [
+    "Navigate and interact with websites",
+    "Fill out forms automatically",
+    "Take screenshots and recordings",
+    "Extract data from web pages",
+    "Automate repetitive browser tasks"
+  ]
+}

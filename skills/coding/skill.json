@@ -1,0 +1,15 @@
+{
+  "name": "Coding Assistant",
+  "description": "Write, refactor, and analyze code across multiple programming languages",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "development",
+  "tags": ["coding", "programming", "development", "refactoring"],
+  "capabilities": [
+    "Write code in multiple languages",
+    "Refactor existing code",
+    "Debug and fix issues",
+    "Code review and analysis",
+    "Generate documentation"
+  ]
+}

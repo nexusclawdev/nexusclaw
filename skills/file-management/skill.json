@@ -1,0 +1,15 @@
+{
+  "name": "File Management",
+  "description": "Organize, search, and manage files and directories",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "productivity",
+  "tags": ["files", "organization", "filesystem", "management"],
+  "capabilities": [
+    "Search for files and directories",
+    "Organize and rename files",
+    "Create backups and archives",
+    "Clean up duplicate files",
+    "Monitor file changes"
+  ]
+}

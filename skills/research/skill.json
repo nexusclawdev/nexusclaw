@@ -1,0 +1,15 @@
+{
+  "name": "Web Research",
+  "description": "Search the web, scrape content, and summarize information",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "research",
+  "tags": ["research", "web-search", "scraping", "summarization"],
+  "capabilities": [
+    "Search the web for information",
+    "Scrape and extract content",
+    "Summarize articles and documents",
+    "Gather data from multiple sources",
+    "Fact-checking and verification"
+  ]
+}

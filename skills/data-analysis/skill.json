@@ -1,0 +1,15 @@
+{
+  "name": "Data Analysis",
+  "description": "Analyze data, generate reports, and create visualizations",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "analytics",
+  "tags": ["data", "analysis", "statistics", "visualization"],
+  "capabilities": [
+    "Parse and analyze CSV/JSON data",
+    "Generate statistical reports",
+    "Create data visualizations",
+    "Identify trends and patterns",
+    "Export analysis results"
+  ]
+}
