@@ -235,6 +235,9 @@ docker-compose up -d
 ### Essential Commands
 
 ```bash
+# Interactive setup wizard (run this first!)
+pnpm cli onboard
+
 # Start the full platform (recommended)
 pnpm cli gateway
 
@@ -243,6 +246,12 @@ pnpm cli agent
 
 # Check system status
 pnpm cli status
+
+# Diagnose issues
+pnpm cli doctor
+
+# Link command globally
+pnpm cli setup
 
 # Development mode with auto-reload
 pnpm dev
