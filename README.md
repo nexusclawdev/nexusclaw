@@ -124,6 +124,37 @@ pnpm cli gateway
 **API:** http://localhost:3100/api
 **WebSocket:** ws://localhost:3100/ws
 
+### 🎮 Essential Commands
+
+```bash
+# Interactive setup wizard (run this first!)
+nexusclaw onboard
+
+# Start full platform (dashboard + agents + channels)
+nexusclaw gateway
+
+# Chat with agent via CLI
+nexusclaw agent
+
+# Check system status
+nexusclaw status
+
+# Diagnose issues
+nexusclaw doctor
+
+# Manage skills
+nexusclaw skills list
+nexusclaw skills install <skill-name>
+
+# Schedule tasks
+nexusclaw cron list
+nexusclaw cron add "0 9 * * *" "Daily task" "command"
+
+# OAuth management
+nexusclaw auth status
+nexusclaw auth login --provider google
+```
+
 ---
 
 ## 📦 Installation
