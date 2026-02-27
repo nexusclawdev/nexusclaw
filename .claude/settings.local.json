@@ -45,7 +45,9 @@
       "Bash(\"/c/Program Files/GitHub CLI/gh\" auth:*)",
       "Bash(\"/c/Program Files/GitHub CLI/gh\" repo:*)",
       "Bash(git:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
+      "Bash(do echo:*)"
     ]
   },
   "outputStyle": "default"
