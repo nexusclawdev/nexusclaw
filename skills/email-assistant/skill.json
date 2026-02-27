@@ -1,0 +1,21 @@
+{
+  "name": "Email Assistant",
+  "description": "Draft, send, and manage emails with AI-powered suggestions",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "productivity",
+  "tags": ["email", "communication", "automation", "drafting"],
+  "capabilities": [
+    "Draft professional emails",
+    "Summarize email threads",
+    "Schedule email sending",
+    "Auto-reply to common queries",
+    "Organize inbox with smart filters"
+  ],
+  "prompts": {
+    "draft_email": "You are an expert email writer. Draft a {tone} email to {recipient} about {subject}. Keep it {length} and professional. Include: {key_points}",
+    "summarize_thread": "Summarize this email thread in 3-5 bullet points, highlighting action items and decisions made: {thread_content}",
+    "auto_reply": "Generate a polite auto-reply for this email category: {category}. Acknowledge receipt and set expectations for response time.",
+    "organize": "Analyze this email and suggest: 1) Priority level (high/medium/low), 2) Category (work/personal/spam), 3) Suggested action (reply/archive/delete)"
+  }
+}

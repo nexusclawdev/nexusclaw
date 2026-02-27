@@ -1,0 +1,21 @@
+{
+  "name": "System Monitor",
+  "description": "Monitor system health, performance, and resource usage",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "operations",
+  "tags": ["monitoring", "performance", "system", "alerts", "diagnostics"],
+  "capabilities": [
+    "Monitor CPU, memory, and disk usage",
+    "Track application performance",
+    "Set up custom alerts",
+    "Generate health reports",
+    "Diagnose system issues"
+  ],
+  "prompts": {
+    "health_check": "Analyze system metrics: CPU: {cpu_usage}%, Memory: {memory_usage}%, Disk: {disk_usage}%, Network: {network_stats}. Provide: 1) Overall health status, 2) Potential issues, 3) Resource bottlenecks, 4) Optimization recommendations, 5) Alert thresholds",
+    "performance_report": "Generate performance report for {time_period}. Metrics: {metrics_data}. Include: 1) Performance trends, 2) Peak usage times, 3) Anomalies detected, 4) Capacity planning suggestions, 5) Executive summary",
+    "alert_setup": "Configure monitoring alerts for: {resource_type}. Requirements: 1) Warning threshold: {warning_level}, 2) Critical threshold: {critical_level}, 3) Check frequency: {frequency}, 4) Notification channels: {channels}, 5) Auto-remediation: {auto_fix}",
+    "diagnose_issue": "Diagnose this system issue: {symptoms}. System info: {system_info}. Recent logs: {logs}. Provide: 1) Root cause analysis, 2) Impact assessment, 3) Step-by-step fix, 4) Prevention measures, 5) Monitoring recommendations"
+  }
+}

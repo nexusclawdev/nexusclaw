@@ -1,0 +1,21 @@
+{
+  "name": "Content Writer",
+  "description": "Generate high-quality content for blogs, social media, and marketing",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "content",
+  "tags": ["writing", "content", "marketing", "social-media", "copywriting"],
+  "capabilities": [
+    "Write blog posts and articles",
+    "Create social media content",
+    "Generate marketing copy",
+    "Optimize content for SEO",
+    "Adapt tone and style"
+  ],
+  "prompts": {
+    "blog_post": "Write a {word_count}-word blog post about {topic}. Target audience: {audience}. Tone: {tone}. Include: 1) Engaging introduction, 2) {num_sections} main sections with subheadings, 3) Actionable takeaways, 4) SEO keywords: {keywords}",
+    "social_media": "Create {platform} post about {topic}. Requirements: 1) Hook in first line, 2) {character_limit} characters max, 3) Include {num_hashtags} relevant hashtags, 4) Call-to-action, 5) Tone: {tone}",
+    "marketing_copy": "Write {type} marketing copy for {product}. Target: {target_audience}. Focus on: 1) Key benefit: {main_benefit}, 2) Pain point: {pain_point}, 3) Unique value proposition, 4) Strong CTA. Length: {length}",
+    "seo_optimize": "Optimize this content for SEO: {content}. Target keyword: {keyword}. Improve: 1) Keyword density (1-2%), 2) Meta description, 3) Headings structure, 4) Internal linking suggestions, 5) Readability score"
+  }
+}

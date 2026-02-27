@@ -1,0 +1,21 @@
+{
+  "name": "Code Reviewer",
+  "description": "Automated code review with best practices and security checks",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "development",
+  "tags": ["code-review", "security", "best-practices", "quality", "testing"],
+  "capabilities": [
+    "Review code for bugs and issues",
+    "Check security vulnerabilities",
+    "Suggest performance improvements",
+    "Enforce coding standards",
+    "Generate review comments"
+  ],
+  "prompts": {
+    "full_review": "Review this {language} code: {code}. Analyze: 1) Bugs and logic errors, 2) Security vulnerabilities (OWASP Top 10), 3) Performance issues, 4) Code style and readability, 5) Best practices violations. Provide: Line-by-line comments, severity ratings, and fix suggestions.",
+    "security_scan": "Perform security audit on: {code}. Check for: 1) SQL injection, 2) XSS vulnerabilities, 3) Authentication issues, 4) Data exposure, 5) Insecure dependencies. Rate severity (Critical/High/Medium/Low) and provide remediation steps.",
+    "performance_check": "Analyze performance of: {code}. Identify: 1) Time complexity issues, 2) Memory leaks, 3) Inefficient algorithms, 4) Database query optimization, 5) Caching opportunities. Suggest optimizations with expected impact.",
+    "style_check": "Check code style: {code}. Language: {language}. Standard: {standard}. Review: 1) Naming conventions, 2) Code formatting, 3) Documentation, 4) Function complexity, 5) DRY violations. Provide refactoring suggestions."
+  }
+}

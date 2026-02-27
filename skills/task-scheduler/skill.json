@@ -1,0 +1,21 @@
+{
+  "name": "Task Scheduler",
+  "description": "Intelligent task planning, scheduling, and reminder system",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "productivity",
+  "tags": ["tasks", "scheduling", "planning", "reminders", "calendar"],
+  "capabilities": [
+    "Create and manage tasks",
+    "Schedule tasks based on priority",
+    "Set smart reminders",
+    "Break down complex projects",
+    "Track task dependencies"
+  ],
+  "prompts": {
+    "create_task": "Create a task with: Title: {title}, Description: {description}, Priority: {priority}, Due date: {due_date}. Suggest optimal time slots based on: {constraints}",
+    "break_down_project": "Break down this project into actionable tasks: {project_description}. For each task provide: 1) Task name, 2) Estimated time, 3) Dependencies, 4) Priority level",
+    "schedule_optimization": "I have these tasks: {task_list}. Optimize my schedule for {time_period} considering: 1) Task priorities, 2) Estimated durations, 3) My available hours: {available_hours}, 4) Energy levels: {energy_pattern}",
+    "reminder_smart": "Set a smart reminder for: {task}. Consider: 1) Task urgency, 2) Preparation time needed, 3) Related tasks, 4) Optimal notification timing"
+  }
+}
