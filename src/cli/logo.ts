@@ -1,0 +1,20 @@
+import chalk from 'chalk';
+import gradient from 'gradient-string';
+
+export function displayLogo(): void {
+  const logo = `
+  ███╗   ██╗███████╗██╗  ██╗██╗   ██╗███████╗ ██████╗██╗      █████╗ ██╗    ██╗
+  ████╗  ██║██╔════╝╚██╗██╔╝██║   ██║██╔════╝██╔════╝██║     ██╔══██╗██║    ██║
+  ██╔██╗ ██║█████╗   ╚███╔╝ ██║   ██║███████╗██║     ██║     ███████║██║ █╗ ██║
+  ██║╚██╗██║██╔══╝   ██╔██╗ ██║   ██║╚════██║██║     ██║     ██╔══██║██║███╗██║
+  ██║ ╚████║███████╗██╔╝ ██╗╚██████╔╝███████║╚██████╗███████╗██║  ██║╚███╔███╔╝
+  ╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝
+
+                        AI Agent Platform - v0.1.0 Beta
+`;
+
+  // Create a blue-to-cyan gradient
+  const nexusGradient = gradient(['#0ea5e9', '#06b6d4', '#22d3ee']);
+  console.log(nexusGradient.multiline(logo));
+  console.log('');
+}

@@ -1,0 +1,40 @@
+# Linguist overrides
+*.md linguist-detectable=true
+*.ts linguist-language=TypeScript
+*.js linguist-language=JavaScript
+
+# Documentation
+docs/** linguist-documentation=true
+*.md linguist-documentation=false
+
+# Generated files
+dist/** linguist-generated=true
+*.d.ts linguist-generated=true
+*.js.map linguist-generated=true
+
+# Vendored code
+node_modules/** linguist-vendored=true
+ui-src/node_modules/** linguist-vendored=true
+
+# Line endings
+* text=auto
+*.ts text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

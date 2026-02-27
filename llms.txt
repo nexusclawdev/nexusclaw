@@ -1,0 +1,15 @@
+# NexusClaw
+> Ultra-Lightweight Secure AI Agent with Browser Control.
+
+## Core Files
+- [src/cli/index.ts]: Main CLI entrypoint
+- [src/server/api.ts]: Fastify API REST routes and WebSockets
+- [src/agent/loop.ts]: Core AI iteration loop
+- [ui-src/src/App.tsx]: Dashboard Frontend Application
+
+## Key Concepts
+- **Playwright Browser**: Agents use Playwright directly without external API dependencies.
+- **Zero-Trust**: Hardcoded domain blacklists and structural shell command blocks.
+- **Encrypted Session**: Vaults are AES-256-GCM encrypted per user.
+- **Dual Memory**: Short-term exact context + Long-term embeddings array for recall.
+- **Agent Sandbox**: The agent is restricted to working in designated system limits.

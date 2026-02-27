@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.missioncontrol.server</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <!-- Replace this with the full path to your Node.js binary if 'node' doesn't work (e.g., /usr/local/bin/node or /opt/homebrew/bin/node) -->
+        <string>/usr/local/bin/node</string>
+        
+        <!-- IMPORTANT: Replace this with the ABSOLUTE path to your server.js file -->
+        <string>/ABSOLUTE/PATH/TO/standalone-mission-control/server.js</string>
+    </array>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.missioncontrol.server.err</string>
+    
+    <key>StandardOutPath</key>
+    <string>/tmp/com.missioncontrol.server.out</string>
+    
+    <key>WorkingDirectory</key>
+    <!-- IMPORTANT: Replace this with the ABSOLUTE path to your directory -->
+    <string>/ABSOLUTE/PATH/TO/standalone-mission-control</string>
+</dict>
+</plist>

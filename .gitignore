@@ -1,0 +1,106 @@
+# Dependencies
+node_modules/
+ui-src/node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# NexusClaw data
+.nexusclaw/
+.agent/
+sessions/
+workspace/
+test-workspace/
+*.db
+*.db-shm
+*.db-wal
+
+# Temporary files
+*.tmp
+*.temp
+*_out*.json
+*_out*.txt
+audit_*.json
+lighthouse_*.json
+scan_*.json
+db_dump.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Security
+vault/
+.salt
+*_scan*.json
+*_audit*.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Package manager
+.pnpm-store/
+.yarn/
+.npm/
+
+# Playwright
+playwright-report/
+test-results/
+
+# WhatsApp session data
+auth_info_baileys/
+.nexusclaw-whatsapp-session/
+.wwebjs_cache/
+.wwebjs_auth/
+
+# Secrets and keys
+*.pem
+*.key
+*.cert
+secrets/
+vault/
+.salt
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Security scan results
+*_scan*.json
+audit_out*.json
+security_scan*.json

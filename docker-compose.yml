@@ -1,0 +1,19 @@
+services:
+  nexusclaw-gateway:
+    build: .
+    command: gateway
+    restart: unless-stopped
+    volumes:
+      - ~/.nexusclaw:/root/.nexusclaw
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=production
+
+  nexusclaw-cli:
+    build: .
+    profiles: ["cli"]
+    volumes:
+      - ~/.nexusclaw:/root/.nexusclaw
+    stdin_open: true
+    tty: true

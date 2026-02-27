@@ -1,0 +1,49 @@
+<svg width="1200" height="300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1e293b;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ec4899;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="300" fill="url(#grad1)"/>
+
+  <!-- Grid pattern -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+  </pattern>
+  <rect width="1200" height="300" fill="url(#grid)"/>
+
+  <!-- Glow effect -->
+  <circle cx="200" cy="150" r="150" fill="url(#grad2)" opacity="0.1"/>
+  <circle cx="1000" cy="150" r="150" fill="url(#grad2)" opacity="0.1"/>
+
+  <!-- Logo icon (claw) -->
+  <g transform="translate(100, 100)">
+    <path d="M 50 50 Q 30 30 20 50 Q 10 70 30 80 L 50 60 L 70 80 Q 90 70 80 50 Q 70 30 50 50 Z"
+          fill="url(#grad2)" opacity="0.8"/>
+    <circle cx="50" cy="45" r="8" fill="#fff"/>
+  </g>
+
+  <!-- Title -->
+  <text x="220" y="140" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#fff">
+    NexusClaw
+  </text>
+
+  <!-- Subtitle -->
+  <text x="220" y="180" font-family="Arial, sans-serif" font-size="24" fill="#94a3b8">
+    Ultra-Lightweight Secure AI Agent Platform
+  </text>
+
+  <!-- Decorative elements -->
+  <circle cx="1050" cy="100" r="4" fill="#3b82f6" opacity="0.6"/>
+  <circle cx="1080" cy="120" r="3" fill="#8b5cf6" opacity="0.6"/>
+  <circle cx="1100" cy="90" r="5" fill="#ec4899" opacity="0.6"/>
+  <circle cx="1070" cy="140" r="3" fill="#3b82f6" opacity="0.6"/>
+</svg>
