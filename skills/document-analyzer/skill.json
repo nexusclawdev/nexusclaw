@@ -1,0 +1,22 @@
+{
+  "name": "Document Analyzer",
+  "description": "Analyze, summarize, and extract insights from documents and PDFs",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "analytics",
+  "tags": ["documents", "pdf", "analysis", "summarization", "extraction"],
+  "capabilities": [
+    "Summarize long documents",
+    "Extract key information",
+    "Compare multiple documents",
+    "Generate executive summaries",
+    "Answer questions about documents"
+  ],
+  "prompts": {
+    "summarize_document": "You are an expert document analyst. Summarize this document:\n\nDocument type: {doc_type}\nLength: {page_count} pages\nContent: {content}\n\nProvide:\n1. Executive Summary (2-3 sentences)\n2. Key Points (5-7 bullet points)\n3. Main Arguments/Findings\n4. Important Data/Statistics\n5. Conclusions/Recommendations\n6. Action Items (if any)\n\nTarget length: {target_length} words. Focus on actionable insights.",
+    "extract_information": "Extract specific information from this document:\n\nDocument: {content}\nExtract: {information_type}\n\nFor each item found, provide:\n- Exact text/value\n- Page/section reference\n- Context (surrounding information)\n- Confidence level (High/Medium/Low)\n\nFormat as structured data (JSON/table) for easy processing.",
+    "compare_documents": "Compare these {num_docs} documents and identify:\n\nDocuments:\n{document_list}\n\nAnalysis:\n1. Common themes and agreements\n2. Contradictions and differences\n3. Unique points in each document\n4. Data discrepancies\n5. Completeness comparison\n6. Recommendation on which to use/trust\n\nPresent as comparison table with clear conclusions.",
+    "executive_summary": "Create an executive summary for C-level audience:\n\nDocument: {content}\nAudience: {audience_level}\nFocus areas: {focus_areas}\n\nSummary must include:\n1. Bottom Line Up Front (BLUF) - 1 sentence\n2. Key Findings (3-5 points)\n3. Business Impact\n4. Financial Implications (if any)\n5. Recommended Actions\n6. Timeline/Urgency\n\nLength: 1 page max. Use business language, avoid jargon.",
+    "qa_document": "Answer this question based on the document:\n\nDocument: {content}\nQuestion: {question}\n\nProvide:\n1. Direct answer (concise)\n2. Supporting evidence (quotes from document)\n3. Page/section references\n4. Related information\n5. Confidence level in answer\n\nIf answer not found in document, clearly state that."
+  }
+}

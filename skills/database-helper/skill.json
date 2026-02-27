@@ -1,0 +1,22 @@
+{
+  "name": "Database Helper",
+  "description": "Generate SQL queries, optimize databases, and manage data migrations",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "development",
+  "tags": ["database", "sql", "optimization", "migration", "queries"],
+  "capabilities": [
+    "Generate SQL queries",
+    "Optimize database performance",
+    "Create migration scripts",
+    "Design database schemas",
+    "Debug query issues"
+  ],
+  "prompts": {
+    "generate_query": "You are a database expert. Generate an optimized SQL query:\n\nDatabase: {db_type} (MySQL/PostgreSQL/MongoDB/etc.)\nTables: {tables_schema}\nRequirement: {requirement}\nFilters: {filters}\nSorting: {sorting}\nLimit: {limit}\n\nProvide:\n1. Optimized SQL query\n2. Explanation of query logic\n3. Index recommendations\n4. Expected execution plan\n5. Alternative approaches (if any)\n6. Performance considerations\n\nEnsure query is:\n- SQL injection safe (parameterized)\n- Optimized for performance\n- Readable and maintainable",
+    "optimize_query": "Optimize this slow database query:\n\nCurrent query: {query}\nDatabase: {db_type}\nExecution time: {current_time}\nTable sizes: {table_sizes}\nExisting indexes: {indexes}\nExplain plan: {explain_plan}\n\nAnalyze and provide:\n1. Performance bottlenecks identified\n2. Optimized query version\n3. Index recommendations (CREATE INDEX statements)\n4. Query rewrite suggestions\n5. Expected performance improvement\n6. Trade-offs to consider\n\nGoal: Reduce execution time by {target_improvement}%",
+    "create_migration": "Create a database migration script:\n\nDatabase: {db_type}\nMigration type: {migration_type} (add table/column, modify, delete)\nChanges: {changes_description}\nExisting schema: {current_schema}\n\nGenerate:\n1. UP migration (apply changes)\n2. DOWN migration (rollback)\n3. Data migration (if needed)\n4. Validation queries\n5. Rollback safety checks\n6. Estimated execution time\n\nEnsure:\n- Zero downtime if possible\n- Data integrity maintained\n- Reversible safely\n- Production-ready",
+    "design_schema": "Design an optimal database schema:\n\nApplication: {app_description}\nEntities: {entities}\nRelationships: {relationships}\nExpected scale: {scale}\nQuery patterns: {common_queries}\nDatabase: {db_type}\n\nProvide:\n1. Entity-Relationship Diagram (text/ASCII)\n2. CREATE TABLE statements\n3. Indexes for common queries\n4. Foreign key constraints\n5. Normalization level (1NF/2NF/3NF) with reasoning\n6. Partitioning strategy (if needed)\n7. Scaling considerations\n\nOptimize for: {optimization_goal} (read/write/balanced)",
+    "debug_query": "Debug this problematic database query:\n\nQuery: {query}\nError message: {error}\nDatabase: {db_type}\nContext: {context}\nExpected result: {expected}\nActual result: {actual}\n\nDiagnose:\n1. Root cause of issue\n2. Specific error explanation\n3. Fixed query\n4. Why the fix works\n5. How to prevent similar issues\n6. Testing recommendations\n\nProvide step-by-step debugging process."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "DevOps Assistant",
+  "description": "Automate deployments, manage infrastructure, and monitor systems",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "operations",
+  "tags": ["devops", "ci-cd", "docker", "kubernetes", "automation"],
+  "capabilities": [
+    "Create CI/CD pipelines",
+    "Generate Docker configurations",
+    "Write infrastructure as code",
+    "Automate deployments",
+    "Monitor and troubleshoot"
+  ],
+  "prompts": {
+    "create_pipeline": "You are a DevOps expert. Create a CI/CD pipeline:\n\nProject: {project_type} ({language})\nPlatform: {platform} (GitHub Actions/GitLab CI/Jenkins/etc.)\nSteps needed: {steps}\nEnvironments: {environments}\nTests: {test_types}\nDeployment target: {target}\n\nGenerate pipeline that:\n1. Triggers on: {triggers}\n2. Runs tests (unit, integration, e2e)\n3. Builds artifacts\n4. Security scanning\n5. Deploys to {environments}\n6. Rollback capability\n7. Notifications on failure\n\nInclude:\n- Complete pipeline YAML/config\n- Environment variables needed\n- Secrets to configure\n- Best practices applied\n- Estimated pipeline duration",
+    "dockerfile": "Create an optimized Dockerfile:\n\nApplication: {app_type}\nLanguage: {language} {version}\nFramework: {framework}\nDependencies: {dependencies}\nProduction requirements: {requirements}\n\nDockerfile must:\n1. Use multi-stage build\n2. Minimize image size\n3. Security best practices (non-root user, minimal base)\n4. Layer caching optimization\n5. Health check\n6. Proper signal handling\n\nProvide:\n- Optimized Dockerfile\n- .dockerignore file\n- Build command\n- Run command\n- Expected image size\n- Security scan recommendations",
+    "infrastructure_code": "Generate infrastructure as code:\n\nCloud provider: {provider} (AWS/Azure/GCP)\nInfrastructure: {infrastructure_description}\nTool: {tool} (Terraform/CloudFormation/Pulumi)\nEnvironment: {environment}\nScaling requirements: {scaling}\n\nCreate IaC for:\n1. Compute resources\n2. Networking (VPC, subnets, security groups)\n3. Storage\n4. Load balancers\n5. Auto-scaling\n6. Monitoring and logging\n7. Backup and disaster recovery\n\nInclude:\n- Complete IaC code\n- Variables file\n- Outputs\n- Cost estimation\n- Security best practices\n- Deployment instructions",
+    "deployment_script": "Create an automated deployment script:\n\nApplication: {app_name}\nEnvironment: {environment}\nDeployment type: {deployment_type} (blue-green/rolling/canary)\nInfrastructure: {infrastructure}\nHealth checks: {health_checks}\nRollback conditions: {rollback_conditions}\n\nScript should:\n1. Pre-deployment checks\n2. Backup current version\n3. Deploy new version\n4. Run smoke tests\n5. Monitor health metrics\n6. Auto-rollback on failure\n7. Post-deployment verification\n8. Notifications\n\nProvide:\n- Deployment script (Bash/Python)\n- Configuration file\n- Rollback script\n- Testing checklist\n- Monitoring dashboard queries",
+    "troubleshoot_system": "Troubleshoot this production issue:\n\nSystem: {system_description}\nIssue: {issue_description}\nSymptoms: {symptoms}\nRecent changes: {changes}\nLogs: {logs}\nMetrics: {metrics}\nError messages: {errors}\n\nProvide:\n1. Root cause analysis\n2. Immediate mitigation steps\n3. Long-term fix\n4. Prevention measures\n5. Monitoring improvements\n6. Runbook for similar issues\n\nPrioritize:\n- System stability\n- Data integrity\n- Minimal downtime\n- Clear communication plan"
+  }
+}

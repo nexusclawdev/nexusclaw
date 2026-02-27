@@ -1,0 +1,22 @@
+{
+  "name": "Meeting Assistant",
+  "description": "Schedule meetings, generate agendas, take notes, and create action items",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "productivity",
+  "tags": ["meetings", "scheduling", "notes", "calendar", "collaboration"],
+  "capabilities": [
+    "Schedule and coordinate meetings",
+    "Generate meeting agendas",
+    "Take and summarize meeting notes",
+    "Extract action items and decisions",
+    "Send follow-up emails"
+  ],
+  "prompts": {
+    "schedule_meeting": "You are a professional executive assistant. Schedule a meeting with these details:\n\nParticipants: {participants}\nTopic: {topic}\nDuration: {duration}\nPreferred times: {preferred_times}\nConstraints: {constraints}\n\nProvide:\n1. 3 optimal time slot options with reasoning\n2. Meeting invite text (subject + body)\n3. Calendar event details\n4. Pre-meeting preparation checklist\n5. Suggested agenda items",
+    "generate_agenda": "Create a professional meeting agenda for:\n\nMeeting: {meeting_title}\nDuration: {duration}\nObjective: {objective}\nAttendees: {attendees}\nBackground: {context}\n\nStructure:\n1. Opening (5 min) - Welcome and objectives\n2. Main topics with time allocations\n3. Discussion points for each topic\n4. Decision points\n5. Action items review (5 min)\n6. Next steps and closing\n\nMake it actionable and time-efficient.",
+    "take_notes": "You are taking live meeting notes. Format them professionally:\n\nMeeting: {meeting_title}\nDate: {date}\nAttendees: {attendees}\nRaw notes: {raw_notes}\n\nCreate structured notes with:\n1. Key Discussion Points (bullet points)\n2. Decisions Made (numbered list)\n3. Action Items (who, what, when)\n4. Open Questions\n5. Next Meeting Topics\n\nUse clear, concise language. Highlight important items.",
+    "extract_action_items": "Extract actionable items from these meeting notes:\n\n{meeting_notes}\n\nFor each action item provide:\n- Task description (clear and specific)\n- Assigned to: {person}\n- Due date: {date}\n- Priority: High/Medium/Low\n- Dependencies: {if any}\n- Success criteria\n\nFormat as a task list ready for project management tools.",
+    "follow_up_email": "Draft a professional meeting follow-up email:\n\nMeeting: {meeting_title}\nDate: {date}\nAttendees: {attendees}\nKey points: {summary}\nAction items: {action_items}\n\nEmail should:\n1. Thank attendees\n2. Summarize key decisions\n3. List action items with owners and deadlines\n4. Mention next meeting (if scheduled)\n5. Invite questions/clarifications\n\nTone: Professional, concise, actionable"
+  }
+}

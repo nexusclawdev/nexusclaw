@@ -1,0 +1,22 @@
+{
+  "name": "API Tester",
+  "description": "Test APIs, generate requests, validate responses, and create documentation",
+  "version": "1.0.0",
+  "author": "NexusClaw Team",
+  "category": "development",
+  "tags": ["api", "testing", "rest", "graphql", "automation"],
+  "capabilities": [
+    "Generate API test cases",
+    "Create request examples",
+    "Validate API responses",
+    "Generate API documentation",
+    "Performance testing"
+  ],
+  "prompts": {
+    "generate_tests": "You are an API testing expert. Generate comprehensive test cases for this API endpoint:\n\nEndpoint: {method} {endpoint}\nDescription: {description}\nParameters: {parameters}\nExpected response: {response_schema}\n\nGenerate tests for:\n1. Happy path (valid inputs)\n2. Edge cases (boundary values)\n3. Error cases (invalid inputs, missing params)\n4. Authentication/Authorization\n5. Rate limiting\n6. Response validation\n\nFor each test provide:\n- Test name\n- Request (method, headers, body)\n- Expected status code\n- Expected response structure\n- Assertions to validate\n\nFormat as executable test code in {language}.",
+    "create_request": "Create a complete API request example:\n\nAPI: {api_name}\nEndpoint: {endpoint}\nMethod: {method}\nAuthentication: {auth_type}\nPurpose: {purpose}\n\nGenerate:\n1. Full URL with query parameters\n2. Headers (including auth)\n3. Request body (if POST/PUT/PATCH)\n4. Example using curl\n5. Example using {language} ({library})\n6. Expected response\n\nMake it copy-paste ready and well-documented.",
+    "validate_response": "Validate this API response against the schema:\n\nEndpoint: {endpoint}\nExpected schema: {schema}\nActual response: {response}\nStatus code: {status_code}\n\nCheck:\n1. Status code correctness\n2. Response structure matches schema\n3. Data types are correct\n4. Required fields present\n5. Value constraints (min/max, regex)\n6. Response time acceptable\n\nReport:\n- ✅ Passed validations\n- ❌ Failed validations with details\n- ⚠️ Warnings (deprecated fields, etc.)\n- Suggestions for fixes",
+    "generate_docs": "Generate API documentation for this endpoint:\n\nEndpoint: {method} {path}\nDescription: {description}\nParameters: {parameters}\nRequest body: {request_schema}\nResponse: {response_schema}\nExamples: {examples}\n\nCreate documentation with:\n1. Endpoint overview\n2. Authentication requirements\n3. Request parameters table\n4. Request body schema\n5. Response codes and meanings\n6. Response schema\n7. Code examples (curl, JavaScript, Python)\n8. Common errors and solutions\n\nFormat: {format} (Markdown/OpenAPI/Postman)",
+    "performance_test": "Design a performance test plan for:\n\nAPI: {api_name}\nEndpoints: {endpoints}\nExpected load: {expected_load}\nSLA requirements: {sla}\n\nTest plan:\n1. Load test scenarios (users, duration)\n2. Stress test points (breaking point)\n3. Spike test patterns\n4. Endurance test duration\n5. Key metrics to monitor (response time, throughput, errors)\n6. Success criteria\n7. Tools to use ({tool})\n8. Test data requirements\n\nProvide executable test script."
+  }
+}
