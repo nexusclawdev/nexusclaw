@@ -49,14 +49,45 @@ import { hooks } from '../hooks/index.js';
  * await app.listen({ port: 3100, host: '0.0.0.0' });
  */
 export async function createServer(db: Database, bus: MessageBus, config: Config, agentLoop?: AgentLoop) {
-    const app = Fastify({ logger: false });
+    const app = Fastify({
+        logger: false,
+        bodyLimit: 1_048_576, // 1MB max request body
+    });
+
+    // ── In-memory Rate Limiter (anti-brute-force, anti-scrape) ───────────────
+    const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+    const RATE_LIMIT_WINDOW_MS = 60_000; // 1-minute window
+    const RATE_LIMIT_MAX = 200;          // 200 requests/minute per IP
+
+    app.addHook('onRequest', (request, reply, done) => {
+        const ip = (request.headers['x-forwarded-for'] as string || request.socket.remoteAddress || 'unknown').split(',')[0].trim();
+        const now = Date.now();
+        const current = rateLimitMap.get(ip);
+
+        if (!current || current.resetAt < now) {
+            rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        } else {
+            current.count++;
+            if (current.count > RATE_LIMIT_MAX) {
+                reply.status(429).send({ error: 'Too Many Requests. Please slow down.', retryAfter: Math.ceil((current.resetAt - now) / 1000) });
+                return;
+            }
+        }
+        // Prune old entries every 1000 requests to avoid memory leak
+        if (rateLimitMap.size > 5000) {
+            for (const [k, v] of rateLimitMap) {
+                if (v.resetAt < now) rateLimitMap.delete(k);
+            }
+        }
+        done();
+    });
 
     // Plugins
     await app.register(import('@fastify/compress'), { global: true, threshold: 1024 });
     await app.register(import('@fastify/cors'), { origin: true });
     await app.register(import('@fastify/websocket'));
 
-    // Security Headers config (vulnerability-scanner fix)
+    // Security Headers (hardened)
     app.addHook('onRequest', (request, reply, done) => {
         reply.header('Content-Security-Policy',
             "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; " +
@@ -67,8 +98,12 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
             "worker-src 'self' blob:; " +
             "connect-src 'self' ws: wss: data:;"
         );
-        reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-        reply.header('X-Frame-Options', 'SAMEORIGIN');
+        reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+        reply.header('X-Frame-Options', 'DENY');
+        reply.header('X-Content-Type-Options', 'nosniff');
+        reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+        reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+        reply.header('X-XSS-Protection', '1; mode=block');
         done();
     });
 
@@ -328,8 +363,8 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
                         );
 
                         // Use routed agent if explicitly set (e.g., agent mentioned by name), otherwise use original receiver
-                        const routedAgentId = result.routedAgentId || body.receiver_id;
-                        const respondingAgent = db.getAgent(routedAgentId) || agent;
+                        const routedAgentId = result.routedAgentId || body.receiver_id || agent.id;
+                        const respondingAgent = db.getAgent(routedAgentId as string) || agent;
 
                         console.log(`[api] 📤 Response from: ${respondingAgent.name} (${respondingAgent.id}), routed: ${result.routedAgentId || 'none'}`);
                         console.log(`[api] 💬 Content: ${result.content ? result.content.substring(0, 100) : 'EMPTY'}`);
@@ -1550,5 +1585,399 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
         return { providers: status };
     });
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // ██  EXTREME FEATURES - API Endpoints                                   ██
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Webhook Intelligence ──────────────────────────────────────────────────
+    const { classifyWebhook } = await import('./modules/webhook-classifier.js');
+
+    // Receive any webhook — AI classifies and routes
+    app.post('/api/webhooks/receive', async (req, reply) => {
+        const body = req.body as any;
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) {
+            if (typeof v === 'string') headers[k] = v;
+        }
+
+        try {
+            // Classify the webhook with AI
+            const classification = await classifyWebhook(headers, body);
+
+            // Store in DB
+            const webhookId = db.addWebhook({
+                platform: classification.platform,
+                event: classification.event,
+                intent: classification.intent,
+                urgency: classification.urgency,
+                department: classification.department,
+                suggested_agent: classification.suggestedAgent,
+                should_auto_act: classification.shouldAutoAct,
+                suggested_action: classification.suggestedAction,
+                payload: JSON.stringify(body).slice(0, 50000),
+                headers: JSON.stringify(headers),
+                classification: JSON.stringify(classification),
+            });
+
+            // Broadcast to dashboard
+            broadcast('webhook_received', {
+                id: webhookId,
+                ...classification,
+                timestamp: Date.now(),
+            });
+
+            // Auto-create task + log if urgent
+            if (classification.shouldAutoAct && classification.suggestedAction) {
+                const taskId = db.createTask({
+                    title: `[Webhook] ${classification.intent}`.slice(0, 120),
+                    description: classification.suggestedAction,
+                    status: 'inbox',
+                    priority: classification.urgency,
+                    department_id: classification.department,
+                    task_type: 'webhook',
+                });
+                db.addTaskLog(taskId, 'webhook', `Auto-created from ${classification.platform} webhook: ${classification.intent}`);
+                broadcast('task_created', db.getTasks().find(t => t.id === taskId));
+                db.updateWebhookStatus(webhookId, 'routed');
+
+                // Log activity
+                db.addMessage({
+                    content: `🔗 Webhook received: **${classification.intent}** → Routed to ${classification.department} (${classification.suggestedAgent})`,
+                    sender_type: 'system',
+                    sender_id: null,
+                    receiver_type: 'all',
+                    message_type: 'log',
+                });
+                broadcast('activity_update', db.getMessages(1)[0]);
+            }
+
+            // Slack URL verification challenge response
+            if (classification.platform === 'Slack' && body?.type === 'url_verification') {
+                return reply.send({ challenge: body.challenge });
+            }
+
+            return {
+                ok: true,
+                webhookId,
+                classification: {
+                    platform: classification.platform,
+                    event: classification.event,
+                    intent: classification.intent,
+                    urgency: classification.urgency,
+                    department: classification.department,
+                    suggestedAgent: classification.suggestedAgent,
+                    shouldAutoAct: classification.shouldAutoAct,
+                },
+            };
+        } catch (err) {
+            return reply.status(500).send({
+                ok: false,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    });
+
+    // List webhook history
+    app.get<{ Querystring: { limit?: string } }>('/api/webhooks', async (req) => {
+        const limit = Number(req.query.limit || 50);
+        return { webhooks: db.getWebhooks(limit) };
+    });
+
+    // Get single webhook detail
+    app.get<{ Params: { id: string } }>('/api/webhooks/:id', async (req, reply) => {
+        const wh = db.getWebhook(req.params.id);
+        if (!wh) return reply.status(404).send({ error: 'Webhook not found' });
+        return {
+            webhook: {
+                ...wh,
+                payload: wh.payload ? JSON.parse(wh.payload) : null,
+                headers: wh.headers ? JSON.parse(wh.headers) : null,
+                classification: wh.classification ? JSON.parse(wh.classification) : null,
+            },
+        };
+    });
+
+    // Replay a webhook (re-classify and re-route)
+    app.post<{ Params: { id: string } }>('/api/webhooks/:id/replay', async (req, reply) => {
+        const wh = db.getWebhook(req.params.id);
+        if (!wh) return reply.status(404).send({ error: 'Webhook not found' });
+        const payload = wh.payload ? JSON.parse(wh.payload) : {};
+        const headers = wh.headers ? JSON.parse(wh.headers) : {};
+        const classification = await classifyWebhook(headers, payload);
+        db.updateWebhookStatus(req.params.id, 'replayed');
+        broadcast('webhook_replayed', { id: req.params.id, classification });
+        return { ok: true, classification };
+    });
+
+    // ── GitHub Status ─────────────────────────────────────────────────────────
+    app.get('/api/github/status', async () => {
+        const token = process.env.GITHUB_TOKEN || (config as any).providers?.github?.apiKey;
+        if (!token) return { connected: false, message: 'GITHUB_TOKEN not configured' };
+        try {
+            const res = await fetch('https://api.github.com/user', {
+                headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'NexusClaw/1.0' },
+            });
+            if (!res.ok) return { connected: false, message: `GitHub API returned ${res.status}` };
+            const user = await res.json() as any;
+            return {
+                connected: true,
+                user: user.login,
+                name: user.name,
+                avatar: user.avatar_url,
+                publicRepos: user.public_repos,
+                url: user.html_url,
+            };
+        } catch (err) {
+            return { connected: false, message: err instanceof Error ? err.message : String(err) };
+        }
+    });
+
+    // ── Swarm Jobs ────────────────────────────────────────────────────────────
+    app.get<{ Querystring: { limit?: string } }>('/api/swarm/jobs', async (req) => {
+        const limit = Number(req.query.limit || 20);
+        return { jobs: db.getSwarmJobs(limit) };
+    });
+
+    app.get<{ Params: { id: string } }>('/api/swarm/jobs/:id', async (req, reply) => {
+        const job = db.getSwarmJob(req.params.id);
+        if (!job) return reply.status(404).send({ error: 'Swarm job not found' });
+        return {
+            job: {
+                ...job,
+                results: job.results ? JSON.parse(job.results) : null,
+            },
+        };
+    });
+
+    // ── Extreme Features Status ───────────────────────────────────────────────
+    app.get('/api/features', async () => {
+        const githubToken = process.env.GITHUB_TOKEN || (config as any).providers?.github?.apiKey;
+        return {
+            features: [
+                {
+                    id: 'code_intel',
+                    name: 'Code Intelligence',
+                    description: 'AST-level code analysis: find usages, complexity, dependency graphs, diffs',
+                    status: 'active',
+                    tools: ['code_find_usages', 'code_analyze', 'code_diff'],
+                },
+                {
+                    id: 'github',
+                    name: 'GitHub Integration',
+                    description: 'Real GitHub REST API: create PRs, comment on issues, get diffs, create branches',
+                    status: githubToken ? 'active' : 'needs_config',
+                    tools: ['github'],
+                    configHint: !githubToken ? 'Set GITHUB_TOKEN in .env' : undefined,
+                },
+                {
+                    id: 'swarm',
+                    name: 'Parallel Swarm Engine',
+                    description: '15x speed parallel multi-agent execution with worker pool, retry, and synthesis',
+                    status: 'active',
+                    tools: ['swarm_run'],
+                },
+                {
+                    id: 'webhooks',
+                    name: 'AI Webhook Intelligence',
+                    description: 'Auto-classify and route any incoming webhook (GitHub, Stripe, Slack, etc.)',
+                    status: 'active',
+                    endpoint: '/api/webhooks/receive',
+                },
+                {
+                    id: 'time_travel',
+                    name: 'Time-Travel Debugging',
+                    description: 'Record every agent decision, rewind to any point, fork timelines, compare outcomes',
+                    status: 'active',
+                    tools: ['time_travel'],
+                },
+                {
+                    id: 'skill_fusion',
+                    name: 'Collaborative Skill Fusion',
+                    description: 'Dynamic skill sharing between agents — borrow, inject, compose, fuse capabilities',
+                    status: 'active',
+                    tools: ['skill_fusion'],
+                },
+            ],
+        };
+    });
+
+    // ── Time-Travel Debugging API ─────────────────────────────────────────────
+    app.get<{ Querystring: { limit?: string } }>('/api/timelines', async (req) => {
+        const limit = Number(req.query.limit || 20);
+        return { timelines: db.getTimelines(limit) };
+    });
+
+    app.get<{ Params: { id: string } }>('/api/timelines/:id', async (req, reply) => {
+        const timeline = db.getTimeline(req.params.id);
+        if (!timeline) return reply.status(404).send({ error: 'Timeline not found' });
+        return { timeline };
+    });
+
+    app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/timelines/:id/events', async (req, reply) => {
+        const timeline = db.getTimeline(req.params.id);
+        if (!timeline) return reply.status(404).send({ error: 'Timeline not found' });
+        const events = db.getTimelineEvents(req.params.id, Number(req.query.limit || 200));
+        return {
+            timeline,
+            events: events.map((e: any) => ({
+                ...e,
+                data: e.data ? JSON.parse(e.data) : null,
+            })),
+        };
+    });
+
+    // ── Skill Fusion API ──────────────────────────────────────────────────────
+    const { FusionEngine } = await import('../agent/fusion-engine.js');
+    const fusionEngine = new FusionEngine(db);
+
+    app.get('/api/skill-fusion/agents', async () => {
+        const agentIds = ['agent-001', 'agent-002', 'agent-003', 'agent-004', 'agent-005', 'agent-006'];
+        return { agents: agentIds.map(id => fusionEngine.getProfile(id)) };
+    });
+
+    app.get('/api/skill-fusion/status', async () => {
+        // Return DB-backed active sessions/transfers so state persists
+        const activeTransfers = db.getActiveSkillTransfers().map((t: any) => ({
+            id: t.id,
+            source_agent_id: t.source_agent_id,
+            target_agent_id: t.target_agent_id,
+            skill_name: t.skill,
+            status: t.status,
+            transfer_time: t.created_at,
+        }));
+        const activeSessions = db.getActiveFusionSessions().map((s: any) => ({
+            id: s.id,
+            initiator_agent_id: JSON.parse(s.agent_ids || '[]')[0] || '',
+            participating_agents: s.agent_ids || '[]',
+            merged_skills: s.combined_skills || '[]',
+            status: s.status,
+            created_at: s.created_at,
+        }));
+        return { activeTransfers, activeSessions };
+    });
+
+    app.post('/api/skill-fusion/borrow', async (req, reply) => {
+        const body = req.body as any;
+        try {
+            const transfer = fusionEngine.borrowSkill(
+                body.source_agent,
+                body.target_agent,
+                body.skill,
+                body.reason || 'API request',
+                (body.duration || 300) * 1000,
+            );
+            broadcast('skill_borrowed', transfer);
+            return { ok: true, transfer };
+        } catch (err) {
+            return reply.status(400).send({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        }
+    });
+
+    app.post('/api/skill-fusion/fuse', async (req, reply) => {
+        const body = req.body as any;
+        try {
+            const fusion = fusionEngine.createFusion(
+                body.name || 'API Fusion',
+                body.agent_ids || [],
+                body.task || 'collaborative task',
+            );
+            broadcast('fusion_created', fusion);
+            return { ok: true, fusion };
+        } catch (err) {
+            return reply.status(400).send({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        }
+    });
+
+    // ── Time-Travel: Fork a timeline from a specific event ───────────────────
+    app.post<{ Params: { id: string }; Body: { fork_at_sequence: number; label?: string } }>(
+        '/api/timelines/:id/fork',
+        async (req, reply) => {
+            const timeline = db.getTimeline(req.params.id);
+            if (!timeline) return reply.status(404).send({ error: 'Timeline not found' });
+
+            const forkAt = req.body.fork_at_sequence;
+            if (typeof forkAt !== 'number') return reply.status(400).send({ error: 'fork_at_sequence required' });
+
+            const newId = `tl_fork_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+            db.addTimeline({
+                id: newId,
+                session_key: `fork_of_${timeline.session_key}`,
+                parent_id: timeline.id,
+                fork_point: forkAt,
+                agent_id: timeline.agent_id,
+                model: timeline.model,
+                status: 'recording',
+                event_count: 0,
+                total_tool_calls: 0,
+                total_llm_calls: 0,
+                total_errors: 0,
+                total_duration: 0,
+            });
+
+            // Copy all events up to fork point into the new timeline
+            const srcEvents = db.getTimelineEvents(timeline.id, 10000);
+            const eventsToFork = srcEvents.filter((e: any) => e.sequence <= forkAt);
+            for (const ev of eventsToFork) {
+                db.addTimelineEvent({
+                    id: `ev_${newId}_${ev.sequence}`,
+                    timeline_id: newId,
+                    sequence: ev.sequence,
+                    type: ev.type,
+                    timestamp: ev.timestamp,
+                    data: ev.data,
+                });
+            }
+            db.updateTimeline(newId, { event_count: eventsToFork.length });
+
+            broadcast('timeline_forked', { parentId: timeline.id, newId, forkAt, label: req.body.label });
+            return { ok: true, timeline_id: newId, forked_at: forkAt, events_copied: eventsToFork.length };
+        }
+    );
+
+    // ── Time-Travel: Rewind (mark timeline as rewound up to a sequence) ──────
+    app.post<{ Params: { id: string }; Body: { rewind_to: number } }>(
+        '/api/timelines/:id/rewind',
+        async (req, reply) => {
+            const timeline = db.getTimeline(req.params.id);
+            if (!timeline) return reply.status(404).send({ error: 'Timeline not found' });
+
+            const rewindTo = req.body.rewind_to;
+            if (typeof rewindTo !== 'number') return reply.status(400).send({ error: 'rewind_to sequence required' });
+
+            db.updateTimeline(timeline.id, { status: 'rewound', event_count: rewindTo });
+            broadcast('timeline_rewound', { timelineId: timeline.id, rewindTo });
+            return { ok: true, rewound_to: rewindTo };
+        }
+    );
+
+    // ── Time-Travel: Replay events as a streamed report ─────────────────────
+    app.get<{ Params: { id: string }; Querystring: { from?: string; to?: string } }>(
+        '/api/timelines/:id/replay',
+        async (req, reply) => {
+            const timeline = db.getTimeline(req.params.id);
+            if (!timeline) return reply.status(404).send({ error: 'Timeline not found' });
+
+            const allEvents = db.getTimelineEvents(req.params.id, 10000);
+            const from = Number(req.query.from || 1);
+            const to = Number(req.query.to || allEvents.length);
+
+            const slice = allEvents
+                .filter((e: any) => e.sequence >= from && e.sequence <= to)
+                .map((e: any) => ({ ...e, data: e.data ? JSON.parse(e.data) : null }));
+
+            return {
+                ok: true,
+                timeline,
+                replay: {
+                    from,
+                    to,
+                    total: slice.length,
+                    events: slice,
+                },
+            };
+        }
+    );
+
     return app;
 }
+

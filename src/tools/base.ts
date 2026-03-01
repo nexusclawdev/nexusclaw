@@ -3,16 +3,24 @@
  * TypeScript equivalent of nanobot's Tool ABC — same interface, stronger types.
  */
 
+export type ToolPropertySchema = {
+    type: string;
+    description?: string;
+    enum?: string[];
+    default?: unknown;
+    // array support
+    items?: ToolPropertySchema | Record<string, unknown>;
+    // object support
+    properties?: Record<string, ToolPropertySchema>;
+    required?: string[];
+};
+
 export interface ToolParameters {
     type: 'object';
-    properties: Record<string, {
-        type: string;
-        description: string;
-        enum?: string[];
-        default?: unknown;
-    }>;
+    properties: Record<string, ToolPropertySchema>;
     required?: string[];
 }
+
 
 export interface ToolSchema {
     type: 'function';

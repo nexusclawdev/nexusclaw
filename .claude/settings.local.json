@@ -47,7 +47,10 @@
       "Bash(git:*)",
       "Bash(node:*)",
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
-      "Bash(do echo:*)"
+      "Bash(do echo:*)",
+      "Bash(claude status:*)",
+      "Bash(echo:*)",
+      "Bash(reg query:*)"
     ]
   },
   "outputStyle": "default"

@@ -6,7 +6,11 @@ import type {
   MeetingPresence,
   Project,
   CliModelInfo,
-  RoomTheme
+  RoomTheme,
+  Timeline,
+  TimelineEvent,
+  SkillTransfer,
+  FusionSession
 } from './types';
 
 const base = '';
@@ -1205,4 +1209,52 @@ export async function archiveTaskReport(taskId: string): Promise<{
   updated_at: number;
 }> {
   return request(`/api/task-reports/${taskId}/archive`, { method: 'POST' });
+}
+
+// --- NEXUS INTELLIGENCE LAB ---
+
+export async function getTimelines(limit = 20): Promise<Timeline[]> {
+  const j = await request<{ timelines: Timeline[] }>(`/api/timelines?limit=${limit}`);
+  return j.timelines ?? [];
+}
+
+export async function getTimelineEvents(id: string, limit = 200): Promise<TimelineEvent[]> {
+  const j = await request<{ events: TimelineEvent[] }>(`/api/timelines/${id}/events?limit=${limit}`);
+  return j.events ?? [];
+}
+
+export async function forkTimeline(id: string, forkAtSequence: number, label?: string): Promise<{
+  ok: boolean; timeline_id: string; forked_at: number; events_copied: number;
+}> {
+  return post(`/api/timelines/${id}/fork`, { fork_at_sequence: forkAtSequence, label }) as Promise<any>;
+}
+
+export async function rewindTimeline(id: string, rewindTo: number): Promise<{ ok: boolean; rewound_to: number }> {
+  return post(`/api/timelines/${id}/rewind`, { rewind_to: rewindTo }) as Promise<any>;
+}
+
+export async function replayTimeline(id: string, from?: number, to?: number): Promise<{
+  ok: boolean;
+  timeline: Timeline;
+  replay: { from: number; to: number; total: number; events: TimelineEvent[] };
+}> {
+  const params = new URLSearchParams();
+  if (from != null) params.set('from', String(from));
+  if (to != null) params.set('to', String(to));
+  const qs = params.toString();
+  return request(`/api/timelines/${id}/replay${qs ? '?' + qs : ''}`);
+}
+
+export async function getSkillFusionStatus(): Promise<{
+  activeTransfers: SkillTransfer[];
+  activeSessions: FusionSession[];
+}> {
+  const j = await request<{
+    activeTransfers: SkillTransfer[];
+    activeSessions: FusionSession[];
+  }>('/api/skill-fusion/status');
+  return {
+    activeTransfers: j.activeTransfers ?? [],
+    activeSessions: j.activeSessions ?? [],
+  };
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Layers, Settings, Terminal, Sparkles, Rocket } from "lucide-react";
+import { Layers, Settings, Terminal, Sparkles, Rocket, Cpu } from "lucide-react";
 import type { View } from "./Sidebar";
 
 interface TopBarProps {
@@ -16,6 +16,7 @@ const VIEW_CONFIG: Record<View, { title: string; icon: string; IconComponent?: R
     skills: { title: "Skill Library", icon: "📚", IconComponent: Layers },
     settings: { title: "Settings Configuration", icon: "⚙️", IconComponent: Settings },
     "mission-control": { title: "Mission Control", icon: "🚀", IconComponent: Rocket },
+    intelligence: { title: "Nexus Intelligence", icon: "🔬", IconComponent: Cpu },
 };
 
 export const TopBar: React.FC<TopBarProps> = ({ currentView, onChangeView, onRefreshCli, onCreateTask }) => {

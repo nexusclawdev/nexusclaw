@@ -280,3 +280,50 @@ export const DEFAULT_SETTINGS: CompanySettings = {
     antigravity: { model: "google/antigravity-gemini-3-pro" },
   },
 };
+
+// --- NEXUS INTELLIGENCE LAB ---
+
+// Time-Travel
+export interface Timeline {
+  id: string;
+  session_key: string;
+  parent_id: string | null;
+  fork_point: number | null;
+  agent_id: string;
+  model: string;
+  status: 'recording' | 'completed' | 'forked' | 'rewound';
+  event_count: number;
+  total_tool_calls: number;
+  total_llm_calls: number;
+  total_errors: number;
+  total_duration: number;
+  created_at: number;
+}
+
+export interface TimelineEvent {
+  id: number;
+  timeline_id: string;
+  sequence: number;
+  type: string;
+  data: string;
+  timestamp: string;
+}
+
+// Skill Fusion
+export interface SkillTransfer {
+  id: string;
+  source_agent_id: string;
+  target_agent_id: string;
+  skill_name: string;
+  status: 'active' | 'returned';
+  transfer_time: number;
+}
+
+export interface FusionSession {
+  id: string;
+  initiator_agent_id: string;
+  participating_agents: string; // JSON string of IDs
+  merged_skills: string; // JSON string
+  status: 'active' | 'dissolved';
+  created_at: number;
+}

@@ -294,6 +294,85 @@ export class Database {
                 timeout INTEGER DEFAULT 300000,
                 last_run INTEGER
             );
+
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id TEXT PRIMARY KEY,
+                platform TEXT NOT NULL,
+                event TEXT,
+                intent TEXT,
+                urgency INTEGER DEFAULT 5,
+                department TEXT,
+                suggested_agent TEXT,
+                should_auto_act INTEGER DEFAULT 0,
+                suggested_action TEXT,
+                payload TEXT,
+                headers TEXT,
+                classification TEXT,
+                status TEXT DEFAULT 'received',
+                created_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS swarm_jobs (
+                id TEXT PRIMARY KEY,
+                total_tasks INTEGER DEFAULT 0,
+                succeeded INTEGER DEFAULT 0,
+                failed INTEGER DEFAULT 0,
+                concurrency INTEGER DEFAULT 8,
+                wall_duration INTEGER DEFAULT 0,
+                parallel_speedup REAL DEFAULT 1.0,
+                status TEXT DEFAULT 'running',
+                results TEXT,
+                created_at INTEGER,
+                completed_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS timelines (
+                id TEXT PRIMARY KEY,
+                session_key TEXT,
+                parent_id TEXT,
+                fork_point INTEGER,
+                agent_id TEXT,
+                model TEXT,
+                status TEXT DEFAULT 'recording',
+                event_count INTEGER DEFAULT 0,
+                total_tool_calls INTEGER DEFAULT 0,
+                total_llm_calls INTEGER DEFAULT 0,
+                total_errors INTEGER DEFAULT 0,
+                total_duration INTEGER DEFAULT 0,
+                created_at INTEGER,
+                completed_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS timeline_events (
+                id TEXT PRIMARY KEY,
+                timeline_id TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                timestamp INTEGER,
+                data TEXT,
+                FOREIGN KEY (timeline_id) REFERENCES timelines(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS skill_transfers (
+                id TEXT PRIMARY KEY,
+                source_agent_id TEXT,
+                target_agent_id TEXT,
+                skill TEXT,
+                status TEXT DEFAULT 'active',
+                expires_at INTEGER,
+                reason TEXT,
+                created_at INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS fusion_sessions (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                agent_ids TEXT,
+                combined_skills TEXT,
+                status TEXT DEFAULT 'active',
+                task_description TEXT,
+                created_at INTEGER
+            );
         `);
 
         // Seed default departments if empty
@@ -836,6 +915,201 @@ export class Database {
 
     deleteCronJob(id: string): void {
         this.db.prepare("DELETE FROM cron_jobs WHERE id = ?").run(id);
+    }
+
+    // ── Webhooks ──
+    addWebhook(data: Record<string, unknown>): string {
+        const id = `wh_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+        const now = Date.now();
+        this.db.prepare(`
+            INSERT INTO webhooks (id, platform, event, intent, urgency, department, suggested_agent, should_auto_act, suggested_action, payload, headers, classification, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            String(data.platform || 'unknown'),
+            String(data.event || ''),
+            String(data.intent || ''),
+            Number(data.urgency ?? 5),
+            String(data.department || 'operations'),
+            String(data.suggested_agent || ''),
+            data.should_auto_act ? 1 : 0,
+            data.suggested_action ? String(data.suggested_action) : null,
+            data.payload ? String(data.payload) : null,
+            data.headers ? String(data.headers) : null,
+            data.classification ? String(data.classification) : null,
+            'received',
+            now,
+        );
+        return id;
+    }
+
+    getWebhooks(limit = 50): any[] {
+        return this.db.prepare("SELECT * FROM webhooks ORDER BY created_at DESC LIMIT ?").all(limit) as any[];
+    }
+
+    getWebhook(id: string): any {
+        return this.db.prepare("SELECT * FROM webhooks WHERE id = ?").get(id) as any;
+    }
+
+    updateWebhookStatus(id: string, status: string): void {
+        this.db.prepare("UPDATE webhooks SET status = ? WHERE id = ?").run(status, id);
+    }
+
+    // ── Swarm Jobs ──
+    addSwarmJob(data: Record<string, unknown>): string {
+        const id = String(data.id || `swarm_${Date.now().toString(36)}`);
+        this.db.prepare(`
+            INSERT INTO swarm_jobs (id, total_tasks, succeeded, failed, concurrency, wall_duration, parallel_speedup, status, results, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            Number(data.total_tasks ?? 0),
+            Number(data.succeeded ?? 0),
+            Number(data.failed ?? 0),
+            Number(data.concurrency ?? 8),
+            Number(data.wall_duration ?? 0),
+            Number(data.parallel_speedup ?? 1),
+            String(data.status || 'running'),
+            data.results ? String(data.results) : null,
+            Date.now(),
+        );
+        return id;
+    }
+
+    getSwarmJobs(limit = 20): any[] {
+        return this.db.prepare("SELECT * FROM swarm_jobs ORDER BY created_at DESC LIMIT ?").all(limit) as any[];
+    }
+
+    getSwarmJob(id: string): any {
+        return this.db.prepare("SELECT * FROM swarm_jobs WHERE id = ?").get(id) as any;
+    }
+
+    updateSwarmJob(id: string, updates: Record<string, unknown>): void {
+        const keys = Object.keys(updates);
+        if (keys.length === 0) return;
+        const setClause = keys.map(k => `${k} = ?`).join(', ');
+        const values = Object.values(updates) as any[];
+        this.db.prepare(`UPDATE swarm_jobs SET ${setClause} WHERE id = ?`).run(...values, id);
+    }
+
+    // ── Timelines (Time-Travel Debugging) ──
+    addTimeline(data: Record<string, unknown>): string {
+        const id = String(data.id);
+        this.db.prepare(`
+            INSERT INTO timelines (id, session_key, parent_id, fork_point, agent_id, model, status, event_count, total_tool_calls, total_llm_calls, total_errors, total_duration, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            String(data.session_key || ''),
+            data.parent_id ? String(data.parent_id) : null,
+            data.fork_point != null ? Number(data.fork_point) : null,
+            String(data.agent_id || ''),
+            String(data.model || ''),
+            String(data.status || 'recording'),
+            Number(data.event_count ?? 0),
+            Number(data.total_tool_calls ?? 0),
+            Number(data.total_llm_calls ?? 0),
+            Number(data.total_errors ?? 0),
+            Number(data.total_duration ?? 0),
+            Date.now(),
+        );
+        return id;
+    }
+
+    getTimelines(limit = 20): any[] {
+        return this.db.prepare("SELECT * FROM timelines ORDER BY created_at DESC LIMIT ?").all(limit) as any[];
+    }
+
+    getTimeline(id: string): any {
+        return this.db.prepare("SELECT * FROM timelines WHERE id = ?").get(id) as any;
+    }
+
+    updateTimeline(id: string, updates: Record<string, unknown>): void {
+        const keys = Object.keys(updates);
+        if (keys.length === 0) return;
+        const setClause = keys.map(k => `${k} = ?`).join(', ');
+        const values = Object.values(updates) as any[];
+        this.db.prepare(`UPDATE timelines SET ${setClause} WHERE id = ?`).run(...values, id);
+    }
+
+    // ── Timeline Events ──
+    addTimelineEvent(data: Record<string, unknown>): void {
+        this.db.prepare(`
+            INSERT INTO timeline_events (id, timeline_id, sequence, type, timestamp, data)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+            String(data.id),
+            String(data.timeline_id),
+            Number(data.sequence),
+            String(data.type),
+            Number(data.timestamp || Date.now()),
+            data.data ? String(data.data) : null,
+        );
+    }
+
+    getTimelineEvents(timelineId: string, limit = 100): any[] {
+        return this.db.prepare("SELECT * FROM timeline_events WHERE timeline_id = ? ORDER BY sequence ASC LIMIT ?").all(timelineId, limit) as any[];
+    }
+
+    // ── Skill Transfers (Skill Fusion) ──
+    addSkillTransfer(data: Record<string, unknown>): string {
+        const id = String(data.id);
+        this.db.prepare(`
+            INSERT INTO skill_transfers (id, source_agent_id, target_agent_id, skill, status, expires_at, reason, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            String(data.source_agent_id || ''),
+            String(data.target_agent_id || ''),
+            String(data.skill || ''),
+            String(data.status || 'active'),
+            Number(data.expires_at || 0),
+            String(data.reason || ''),
+            Date.now(),
+        );
+        return id;
+    }
+
+    updateSkillTransfer(id: string, updates: Record<string, unknown>): void {
+        const keys = Object.keys(updates);
+        if (keys.length === 0) return;
+        const setClause = keys.map(k => `${k} = ?`).join(', ');
+        const values = Object.values(updates) as any[];
+        this.db.prepare(`UPDATE skill_transfers SET ${setClause} WHERE id = ?`).run(...values, id);
+    }
+
+    getActiveSkillTransfers(): any[] {
+        return this.db.prepare("SELECT * FROM skill_transfers WHERE status = 'active' ORDER BY created_at DESC").all() as any[];
+    }
+
+    // ── Fusion Sessions ──
+    addFusionSession(data: Record<string, unknown>): string {
+        const id = String(data.id);
+        this.db.prepare(`
+            INSERT INTO fusion_sessions (id, name, agent_ids, combined_skills, status, task_description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id,
+            String(data.name || ''),
+            String(data.agent_ids || '[]'),
+            String(data.combined_skills || '[]'),
+            String(data.status || 'active'),
+            String(data.task_description || ''),
+            Date.now(),
+        );
+        return id;
+    }
+
+    updateFusionSession(id: string, updates: Record<string, unknown>): void {
+        const keys = Object.keys(updates);
+        if (keys.length === 0) return;
+        const setClause = keys.map(k => `${k} = ?`).join(', ');
+        const values = Object.values(updates) as any[];
+        this.db.prepare(`UPDATE fusion_sessions SET ${setClause} WHERE id = ?`).run(...values, id);
+    }
+
+    getActiveFusionSessions(): any[] {
+        return this.db.prepare("SELECT * FROM fusion_sessions WHERE status = 'active' ORDER BY created_at DESC").all() as any[];
     }
 
     close() {

@@ -8,6 +8,13 @@ export { BrowseTool } from './browser.js';
 export { SpawnTool } from './spawn.js';
 export { createApplyPatchTool, type PatchSummary } from './patch.js';
 
+// ── Extreme Features ──────────────────────────────────────────────────────────
+export { FindUsagesTool, CodeAnalysisTool, CodeDiffTool } from './code-intel.js';
+export { GitHubTool } from './github.js';
+export { SwarmTool, type SwarmTask, type SwarmResult, type SwarmReport, type SwarmRunConfig } from './swarm.js';
+export { TimeTravelTool } from './time-travel.js';
+export { SkillFusionTool } from './skill-fusion.js';
+
 // Generic tool definition interface used by non-class tools (e.g. apply_patch)
 export interface ToolDefinition {
     name: string;

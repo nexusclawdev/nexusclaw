@@ -4,7 +4,7 @@ import { Activity } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { Department, Agent, CompanySettings } from "../types";
 
-export type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control";
+export type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control" | "intelligence";
 
 interface SidebarProps {
   currentView: View;
@@ -41,13 +41,18 @@ const IconCliOAuth = () => (
     <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
   </svg>
 );
+const IconIntelligence = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2v8" /><path d="m4.93 10.93 1.41 1.41" /><path d="M2 18h2" /><path d="M20 18h2" /><path d="m19.07 10.93-1.41 1.41" /><path d="M22 22H2" /><path d="m8 22 4-10 4 10" /><circle cx="12" cy="5" r="3" />
+  </svg>
+);
 
 const NAV_ITEMS: { view: View; Icon: () => React.ReactElement; label: string }[] = [
   { view: "dashboard", Icon: IconDashboard, label: "Active Agents" },
   { view: "office", Icon: IconOffice, label: "Office View" },
   { view: "tasks", Icon: IconTasks, label: "Task Board" },
-  { view: "skills", Icon: IconSkillLibrary, label: "Skill Library" },
   { view: "settings", Icon: IconCliOAuth, label: "CLI & OAuth" },
+  { view: "intelligence", Icon: IconIntelligence, label: "Nexus Intelligence" },
   { view: "mission-control", Icon: IconDashboard, label: "Mission Control" },
 ];
 

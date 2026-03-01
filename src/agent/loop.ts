@@ -14,7 +14,9 @@
 import { MessageBus, InboundMessage, OutboundMessage, createOutbound, sessionKey } from '../bus/index.js';
 import { ContextBuilder } from './context.js';
 import { MemoryStore } from './memory.js';
-import { ToolRegistry, ExecTool, ReadFileTool, WriteFileTool, EditFileTool, ListDirTool, WebSearchTool, WebFetchTool, MessageTool, BrowseTool, SpawnTool, createApplyPatchTool } from '../tools/index.js';
+import { ToolRegistry, ExecTool, ReadFileTool, WriteFileTool, EditFileTool, ListDirTool, WebSearchTool, WebFetchTool, MessageTool, BrowseTool, SpawnTool, createApplyPatchTool, FindUsagesTool, CodeAnalysisTool, CodeDiffTool, GitHubTool, SwarmTool, TimeTravelTool, SkillFusionTool } from '../tools/index.js';
+import { TimelineRecorder } from './timeline-recorder.js';
+import { FusionEngine } from './fusion-engine.js';
 import { SecurityGuard } from '../security/guard.js';
 import { SessionManager } from '../session/manager.js';
 import { LLMProvider, LLMResponse, ChatMessage, hasToolCalls } from '../providers/index.js';
@@ -47,6 +49,8 @@ export class AgentLoop {
     private rateLimiter: RateLimiter | null;
     private running = false;
     private consolidating = new Set<string>();
+    private timeline: TimelineRecorder;
+    private fusion: FusionEngine;
 
     constructor(
         bus: MessageBus,
@@ -79,6 +83,9 @@ export class AgentLoop {
         this.tools = new ToolRegistry();
         this.security = new SecurityGuard(config.security);
         this.memory = new MemoryStore(workspace);
+
+        this.timeline = new TimelineRecorder(db);
+        this.fusion = new FusionEngine(db);
 
         this.registerDefaultTools(config);
 
@@ -137,6 +144,36 @@ export class AgentLoop {
 
         // Apply Patch tool for code modifications
         this.tools.register(createApplyPatchTool(this.workspace));
+
+        // ── Extreme Features ─────────────────────────────────────────────────
+        // Code Intelligence: find usages, complexity, diffs
+        this.tools.register(new FindUsagesTool(this.workspace));
+        this.tools.register(new CodeAnalysisTool(this.workspace));
+        this.tools.register(new CodeDiffTool(this.workspace));
+
+        // GitHub Integration: real REST API for PRs, issues, branches
+        const githubToken = config.providers?.github?.apiKey || process.env.GITHUB_TOKEN;
+        this.tools.register(new GitHubTool(githubToken));
+
+        // Parallel Swarm Engine: true 15x parallel multi-agent execution
+        this.tools.register(new SwarmTool({
+            provider: this.provider,
+            model: this.model,
+            workspace: this.workspace,
+            maxIterations: Math.min(this.maxIterations, 8), // cap sub-agent iterations
+            maxTokens: this.maxTokens,
+            temperature: this.temperature,
+            githubToken,
+            braveApiKey: config.providers.brave?.apiKey,
+            onProgress: (taskId, msg) => {
+                console.log(`[swarm] ${msg}`);
+            },
+        }));
+        // Time-Travel Debugging: view/rewind/fork/compare timelines
+        this.tools.register(new TimeTravelTool(this.db));
+
+        // Skill Fusion: dynamic skill sharing between agents
+        this.tools.register(new SkillFusionTool(this.fusion));
     }
 
     /** Run the agent loop — process messages from the bus */
@@ -525,6 +562,15 @@ export class AgentLoop {
         const toolsUsed: string[] = [];
         const taskId = msg.metadata.taskId as string | undefined;
 
+        // Start timeline recording
+        const activeAgentId = (msg.metadata as any).routedAgentId || this.agentId;
+        const tlId = this.timeline.startTimeline(
+            sessionKey(msg),
+            activeAgentId,
+            this.model,
+        );
+        this.timeline.recordSnapshot(currentMessages);
+
         while (iteration < this.maxIterations) {
             iteration++;
 
@@ -536,7 +582,16 @@ export class AgentLoop {
                 this.temperature,
             );
 
+            // Record LLM call + response on the timeline
+            this.timeline.recordLLMCall(this.model, currentMessages.length, this.tools.size);
+
             if (hasToolCalls(response)) {
+                // Record LLM response with tool call info
+                this.timeline.recordLLMResponse(
+                    response.content,
+                    true,
+                    response.toolCalls.map(tc => tc.name),
+                );
                 // Stream progress
                 const cleaned = this.stripThink(response.content);
                 if (cleaned) await onProgress(cleaned);
@@ -593,7 +648,13 @@ export class AgentLoop {
                         }
                     }
 
+                    const toolStart = Date.now();
                     const result = await this.tools.execute(tc.name, tc.arguments);
+                    const toolDuration = Date.now() - toolStart;
+
+                    // Record tool call and result on timeline
+                    this.timeline.recordToolCall(tc.name, tc.arguments);
+                    this.timeline.recordToolResult(tc.name, result, toolDuration);
 
                     // Record task log if taskId is present
                     if (taskId) {
@@ -611,6 +672,10 @@ export class AgentLoop {
                 // No tool calls — final response
                 finalContent = this.stripThink(response.content);
 
+                // Record final LLM response
+                this.timeline.recordLLMResponse(finalContent, false, []);
+                this.timeline.recordSnapshot(currentMessages);
+
                 // Record completion if taskId is present
                 if (taskId && finalContent) {
                     this.db.addTaskLog(taskId, 'agent', `✅ Final: ${finalContent.slice(0, 500)}`);
@@ -619,6 +684,9 @@ export class AgentLoop {
                 break;
             }
         }
+
+        // Complete the timeline
+        this.timeline.completeTimeline();
 
         return { content: finalContent, toolsUsed };
     }

@@ -13,6 +13,7 @@ import TaskBoard from "./components/TaskBoard";
 import SkillsLibrary from "./components/SkillsLibrary";
 import SettingsPanel from "./components/SettingsPanel";
 import { MissionControl } from "./components/MissionControl";
+import IntelligenceLab from "./components/IntelligenceLab";
 import AgentDetail from "./components/AgentDetail";
 import { ChatPanel } from "./components/ChatPanel";
 
@@ -31,7 +32,7 @@ import type {
   CliStatusMap
 } from "./types";
 
-type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control";
+type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control" | "intelligence";
 
 // Error Boundary to prevent whole-app crashes from one view
 class ViewErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -306,6 +307,12 @@ export default function App() {
             onDeleteTask={handleDeleteTask}
             onCreateProject={async (p) => { await api.createProject(p); fetchData(); }}
           />
+        );
+      case "intelligence":
+        return (
+          <ViewErrorBoundary key={view}>
+            <IntelligenceLab agents={agents} />
+          </ViewErrorBoundary>
         );
       default:
         return <div className="p-8 font-mono text-red-500">ERROR: UNKNOWN_VIEW_CONTEXT</div>;
