@@ -50,7 +50,13 @@
       "Bash(do echo:*)",
       "Bash(claude status:*)",
       "Bash(echo:*)",
-      "Bash(reg query:*)"
+      "Bash(reg query:*)",
+      "Bash(findstr :8800)",
+      "Bash(sqlite3:*)",
+      "Bash(nexusclaw gateway:*)",
+      "Bash(findstr :3100)",
+      "Bash(xargs -I {} taskkill /F /PID {})",
+      "Bash(dir:*)"
     ]
   },
   "outputStyle": "default"

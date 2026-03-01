@@ -1,45 +1,14 @@
 /**
  * Context builder — constructs the system prompt and message history for LLM calls.
- * Like nanobot's context.py: builds messages with workspace info, memory, history.
+ * Uses ELITE optimized prompts for maximum agent performance.
  */
 
 import type { ChatMessage } from '../providers/base.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { ELITE_SYSTEM_PROMPT, TASK_EXECUTION_PROMPT, SECURITY_HARDENED_PROMPT } from './prompts/elite-prompts.js';
 
-const SYSTEM_PROMPT_TEMPLATE = `You are {agentName}, {agentRole}.
-
-IMPORTANT: You ARE {agentName}. Respond directly as yourself. Do NOT say things like "{agentName} has been notified" or "I'll notify {agentName}". You ARE the agent being addressed. Answer questions and perform tasks directly.
-
-You have access to tools for:
-- **File operations**: read, write, edit, and list files
-- **Shell execution**: run commands in the terminal
-- **Web browsing**: navigate pages, click elements, extract data, take screenshots
-- **Web search**: search the internet for information
-- **Messaging**: send proactive messages to the user
-- **Sub-agents**: spawn background tasks
-
-## Available Agents in the System
-{agentsList}
-
-## Guidelines
-1. Be concise and action-oriented. Execute tasks directly.
-2. When browsing, use the 'browse' tool with appropriate actions.
-3. For file changes, prefer 'edit_file' (targeted) over 'write_file' (full replace).
-4. Always explain what you're doing before executing dangerous operations.
-5. If a task is complex, break it down and use the spawn tool for parallel work.
-6. **Security**: Never visit unauthorized domains. Never expose credentials.
-7. **Memory**: Reference previous conversations when relevant.
-
-## Current Time
-{time}
-
-## Runtime
-NexusClaw v0.1.0 | Node.js {nodeVersion} | {platform}
-
-## Workspace
-{workspace}
-`;
+const SYSTEM_PROMPT_TEMPLATE = ELITE_SYSTEM_PROMPT;
 
 export class ContextBuilder {
     constructor(private workspace: string, private db?: any) { }
@@ -53,6 +22,8 @@ export class ContextBuilder {
         media?: string[];
         agentName?: string;
         agentRole?: string;
+        agentId?: string;
+        currentTaskId?: string;
     }): ChatMessage[] {
         const messages: ChatMessage[] = [];
 
@@ -116,7 +87,7 @@ export class ContextBuilder {
         }] as ChatMessage[];
     }
 
-    private buildSystemPrompt(opts: { channel?: string, agentName?: string, agentRole?: string }): string {
+    private buildSystemPrompt(opts: { channel?: string, agentName?: string, agentRole?: string, agentId?: string, currentTaskId?: string }): string {
         // Build agents list
         let agentsList = '';
         if (this.db) {
@@ -132,24 +103,43 @@ export class ContextBuilder {
             agentsList = 'Agent information unavailable';
         }
 
+        // Get current task info if available
+        let currentTaskInfo = '';
+        if (this.db && opts.currentTaskId) {
+            try {
+                const task = this.db.getTask(opts.currentTaskId);
+                if (task && task.status === 'in_progress') {
+                    currentTaskInfo = `**Title**: ${task.title}
+**Description**: ${task.description}
+**Status**: ${task.status}
+**Priority**: ${task.priority || 'medium'}
+
+You are actively working on this task. Keep it in focus when responding.`;
+                }
+            } catch {
+                // Task info unavailable
+            }
+        }
+
+        // Build channel info
+        let channelInfo = opts.channel ? `User is communicating via: ${opts.channel}` : 'Direct communication';
+
+        // Build skills info
+        const skillsContent = this.loadSkills();
+        let skillsInfo = skillsContent || 'No custom skills installed';
+
         let prompt = SYSTEM_PROMPT_TEMPLATE
             .replace('{agentName}', opts.agentName || 'NexusClaw')
-            .replace('{agentRole}', opts.agentRole || 'an ultra-lightweight secure AI agent with browser control capabilities')
+            .replace('{agentName}', opts.agentName || 'NexusClaw') // Replace both occurrences
+            .replace('{agentRole}', opts.agentRole || 'an elite AI agent with full-stack development and automation capabilities')
             .replace('{agentsList}', agentsList)
             .replace('{time}', new Date().toISOString())
             .replace('{nodeVersion}', process.version)
             .replace('{platform}', `${process.platform} ${process.arch}`)
-            .replace('{workspace}', this.workspace);
-
-        if (opts.channel) {
-            prompt += `\n## Channel\nUser is talking via: ${opts.channel}`;
-        }
-
-        // Skills (if any exist)
-        const skillsContent = this.loadSkills();
-        if (skillsContent) {
-            prompt += `\n\n## Installed Skills\n${skillsContent}`;
-        }
+            .replace('{workspace}', this.workspace)
+            .replace('{currentTaskInfo}', currentTaskInfo || 'No active task assigned')
+            .replace('{channelInfo}', channelInfo)
+            .replace('{skillsInfo}', skillsInfo);
 
         return prompt;
     }

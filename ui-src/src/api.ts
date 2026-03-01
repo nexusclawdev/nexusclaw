@@ -1258,3 +1258,69 @@ export async function getSkillFusionStatus(): Promise<{
     activeSessions: j.activeSessions ?? [],
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── SHELDON LEADER API ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface LeaderMetrics {
+  ok: boolean;
+  activeProjects: number;
+  shippedApps: number;
+  queueLength: number;
+  attentionNeeded: number;
+  totalProjects: number;
+}
+
+export interface PipelinePhaseData {
+  status: 'pending' | 'running' | 'done' | 'failed';
+  result: string;
+  startedAt: number | null;
+  completedAt: number | null;
+  duration: number;
+}
+
+export interface LeaderProject {
+  id: string;
+  directive: string;
+  phase: string;
+  status: 'active' | 'completed' | 'failed' | 'aborted';
+  qualityScore: number;
+  projectPath: string;
+  detailsJson: Record<string, unknown>;
+  phases: Record<string, PipelinePhaseData>;
+}
+
+export async function getLeaderMetrics(): Promise<LeaderMetrics> {
+  return request<LeaderMetrics>('/api/leader/metrics');
+}
+
+export async function getLeaderProjects(): Promise<LeaderProject[]> {
+  const j = await request<{ ok: boolean; projects: LeaderProject[] }>('/api/leader/projects');
+  return j.projects;
+}
+
+export async function getLeaderProject(id: string): Promise<{
+  project: LeaderProject;
+  onePager: Record<string, unknown>;
+  progress: number;
+}> {
+  return request(`/api/leader/projects/${id}`);
+}
+
+export async function launchLeaderProject(directive: string): Promise<{
+  ok: boolean;
+  projectId: string;
+  message: string;
+}> {
+  return post('/api/leader/launch', { directive }) as Promise<{
+    ok: boolean;
+    projectId: string;
+    message: string;
+  }>;
+}
+
+export async function abortLeaderProject(id: string): Promise<{ ok: boolean; message: string }> {
+  return post(`/api/leader/projects/${id}/abort`) as Promise<{ ok: boolean; message: string }>;
+}
+

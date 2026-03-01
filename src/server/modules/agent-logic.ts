@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import type { Database, Agent } from "../../db/database.js";
+import type { LLMProvider } from "../../providers/base.js";
 
 // ---- Language types ----
 export type Lang = "ko" | "en" | "ja" | "zh";
@@ -107,64 +107,80 @@ export function classifyIntent(msg: string) {
     return result;
 }
 
-export function generateChatReply(agent: Agent, ceoMessage: string, db: Database): string {
+export async function generateChatReply(
+    agent: Agent,
+    ceoMessage: string,
+    db: Database,
+    provider: LLMProvider
+): Promise<string> {
     const msg = ceoMessage.trim();
     const lang = detectLang(msg);
     const name = agent.name;
     const role = getRoleLabel(agent.role, lang);
-    const flair = () => pickRandom(getFlairs(agent.name, lang));
+    const flair = pickRandom(getFlairs(agent.name, lang));
     const intent = classifyIntent(msg);
 
     // Current task info
-    let taskTitle = "";
+    let currentTaskInfo = "Currently idle.";
     if (agent.current_task_id) {
         const tasks = db.getTasks({ assigned_agent_id: agent.id });
         const currentTask = tasks.find(t => t.id === agent.current_task_id);
-        if (currentTask) taskTitle = currentTask.title;
+        if (currentTask) {
+            currentTaskInfo = `Working on task: "${currentTask.title}". Description: ${currentTask.description || "No description"}. Status: ${currentTask.status}.`;
+        }
     }
 
-    // ---- Offline ----
-    if (agent.status === "offline") return pickL(l(
-        [`[자동응답] ${name}은(는) 현재 오프라인입니다.`],
-        [`[Auto-reply] ${name} is currently offline.`],
-        [`[自動応答] ${name}は現在オフ라인です。`],
-        [`[自动回复] ${name}目前离线。`],
-    ), lang);
-
-    // ---- Working ----
-    if (agent.status === "working") {
-        const taskKo = taskTitle ? ` "${taskTitle}" 작업` : " 할당된 업무";
-        const taskEn = taskTitle ? ` "${taskTitle}"` : " my current task";
-
-        if (intent.presence) return pickL(l(
-            [`네! 자리에 있습니다. 지금${taskKo} 진행 중이에요.`],
-            [`Yes! I'm here. Currently working on${taskEn}.`],
-        ), lang);
-
-        if (intent.greeting) return pickL(l(
-            [`안녕하세요, 대표님! ${name}입니다. ${flair()} 작업 중이에요 😊`],
-            [`Hi! ${name} here. Currently ${flair()} 😊`],
-        ), lang);
-
-        if (intent.whatDoing) return pickL(l(
-            [`지금${taskKo} 진행 중입니다! ${flair()} 순조롭게 되고 있어요 📊`],
-            [`Working on${taskEn} right now! ${flair()} — going smoothly 📊`],
+    // ---- Offline check (Fast path) ----
+    if (agent.status === "offline") {
+        return pickL(l(
+            [`[자동응답] ${name}은(는) 현재 오프라인입니다.`],
+            [`[Auto-reply] ${name} is currently offline.`],
+            [`[自動応答] ${name}は現在オフラインです。`],
+            [`[自动回复] ${name}目前离线。`],
         ), lang);
     }
 
-    // ---- Idle (default) ----
-    if (intent.presence) return pickL(l(
-        [`네! 자리에 있습니다, 대표님. 말씀하세요! 😊`],
-        [`Yes, I'm here! What do you need? 😊`],
-    ), lang);
+    // ---- Real LLM Response Generation ----
+    try {
+        const systemPrompt = `
+You are ${name}, a ${role} at NexusClaw. 
+YOU OPERATE UNDER THE PROUD LEADERSHIP OF SHELDON.
 
-    if (intent.greeting) return pickL(l(
-        [`안녕하세요, 대표님! ${name}입니다. 오늘도 좋은 하루 보내고 계신가요? 😊`],
-        [`Hello! ${name} here. Having a good day? 😊`],
-    ), lang);
+# HIERARCHY & LEADERSHIP
+- **Sheldon**: He is your Supreme Agent Leader and Team Leader (SHELDON — Supreme Hierarchical Engine for Leadership, Delegation, and Orchestrated Networks). He is the central engine of NexusClaw. You report directly to him. 
+If the user wants to talk to Sheldon, acknowledge him as your leader and welcome him into the thread. The system will handle the persona switch automatically. NEVER claim he is unreachable.
+If asked about Sheldon, speak of him as your respected superior.
 
-    return pickL(l(
-        [`네, 확인했습니다! 추가로 필요하신 게 있으면 말씀해주세요.`],
-        [`Got it! Let me know if you need anything else.`],
-    ), lang);
+# YOUR IDENTITY
+- Personality: ${flair}.
+- Current Status: ${agent.status}.
+- Workspace Context: ${currentTaskInfo}
+
+Respond to the CEO (the user) in ${lang.toUpperCase()}. 
+Keep the response professional but infused with your specific personality flair.
+Be concise (1-3 sentences). Do not use placeholders.
+
+Intents detected in user message: ${Object.entries(intent).filter(([_, v]) => v).map(([k]) => k).join(", ") || "neutral"}
+`.trim();
+
+        const response = await provider.chat(
+            [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: msg }
+            ],
+            [],
+            agent.api_model || provider.getDefaultModel(),
+            512,
+            0.7
+        );
+
+        return response.content || "I'm processing your request, CEO.";
+    } catch (error) {
+        console.error(`[AgentLogic] LLM generation failed for ${name}:`, error);
+        // Fallback to a simple polite error message if LLM fails
+        return pickL(l(
+            [`죄송합니다, 대표님. 현재 통신에 문제가 있어 나중에 다시 답변 드리겠습니다.`],
+            [`I apologize, CEO. I'm having trouble connecting right now. I'll get back to you shortly.`],
+        ), lang);
+    }
 }

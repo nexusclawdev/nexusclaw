@@ -398,6 +398,7 @@ export class Database {
             const agents = [
                 ['agent-001', 'Cipher', 'team_leader', 'planning', '🏗️', 'claude', now, now],
                 ['agent-002', 'Elena', 'senior', 'development', '⚡', 'codex', now, now],
+                ['agent-000', 'Sheldon', 'supreme_leader', 'planning', '🧠', 'gpt-4o', now, now],
                 ['agent-003', 'Alex', 'senior', 'design', '🎨', 'gemini', now, now],
                 ['agent-004', 'Mia', 'junior', 'qa', '🛡️', 'opencode', now, now],
                 ['agent-005', 'Zane', 'senior', 'devsecops', '🔐', 'copilot', now, now],
@@ -431,7 +432,7 @@ export class Database {
             
             UPDATE agents SET name = 'Cipher' WHERE id = 'agent-001';
             UPDATE agents SET name = 'Elena' WHERE id = 'agent-002';
-            UPDATE agents SET name = 'Alex' WHERE id = 'agent-003';
+            UPDATE agents SET name = 'Sheldon', role = 'supreme_leader' WHERE id = 'agent-003';
             UPDATE agents SET name = 'Mia' WHERE id = 'agent-004';
             UPDATE agents SET name = 'Zane' WHERE id = 'agent-005';
             UPDATE agents SET name = 'Liam' WHERE id = 'agent-006';

@@ -34,6 +34,8 @@ import type { Config } from '../config/schema.js';
 import type { AgentLoop } from '../agent/loop.js';
 import { randomBytes, createHash } from 'node:crypto';
 import { hooks } from '../hooks/index.js';
+import { generateChatReply } from './modules/agent-logic.js';
+import { createProvider } from '../providers/index.js';
 
 /**
  * Creates and configures the Fastify REST API and WebSocket server for NexusClaw.
@@ -53,6 +55,8 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
         logger: false,
         bodyLimit: 1_048_576, // 1MB max request body
     });
+
+    const llmProvider = createProvider(config);
 
     // ── In-memory Rate Limiter (anti-brute-force, anti-scrape) ───────────────
     const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -198,6 +202,11 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
         const task = db.getTasks().find(t => t.id === e.payload.taskId);
         if (task) broadcast('task_update', task);
     });
+
+    // Note: Hook removed - 'task:updated' not in HookEventType
+    // hooks.on('task:updated', (e) => {
+    //     broadcast('task_update', e.payload);
+    // });
 
     // ── Health ──
     app.get('/healthz', async () => ({ ok: true, service: 'nexusclaw', version: '0.1.0', uptime: process.uptime() }));
@@ -402,7 +411,7 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
             const agent = db.getAgent(body.receiver_id);
             if (agent) {
                 setTimeout(async () => {
-                    const replyContent = generateChatReply(agent, body.content, db);
+                    const replyContent = await generateChatReply(agent, body.content, db, llmProvider);
                     db.addMessage({
                         content: replyContent,
                         sender_type: 'agent',
@@ -420,7 +429,7 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
             const agents = db.getAgents();
             agents.filter(a => a.role === 'team_leader' && a.status !== 'offline').forEach((leader, idx) => {
                 setTimeout(async () => {
-                    const replyContent = generateChatReply(leader as any, body.content, db);
+                    const replyContent = await generateChatReply(leader as any, body.content, db, llmProvider);
                     db.addMessage({
                         content: replyContent,
                         sender_type: 'agent',
@@ -1977,6 +1986,97 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
             };
         }
     );
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── SHELDON LEADER — Supreme Agent Orchestrator API ──────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    const { SheldonOrchestrator } = await import('../agent/sheldon-orchestrator.js');
+
+    const sheldon = new SheldonOrchestrator({
+        provider: llmProvider,
+        db,
+        model: config.agents?.defaults?.model
+            ? (await import('../config/schema.js')).resolvePrimaryModel(config.agents.defaults.model)
+            : 'gpt-4o-mini',
+        workspace: process.cwd(),
+        maxWorkerIterations: 10,
+        maxTokens: config.agents?.defaults?.maxTokens || 16000,
+        temperature: config.agents?.defaults?.temperature || 0.7,
+        braveApiKey: config.providers?.brave?.apiKey,
+        onProgress: (projectId, phase, message) => {
+            broadcast('sheldon_progress', { projectId, phase, message, timestamp: Date.now() });
+        },
+    });
+
+    // GET /api/leader/metrics — top-level dashboard metrics
+    app.get('/api/leader/metrics', async () => {
+        const metrics = sheldon.getMetrics();
+        return { ok: true, ...metrics };
+    });
+
+    // GET /api/leader/projects — all pipeline projects
+    app.get('/api/leader/projects', async () => {
+        const projects = sheldon.getProjects();
+        return { ok: true, projects };
+    });
+
+    // GET /api/leader/projects/:id — single project with full details
+    app.get<{ Params: { id: string } }>('/api/leader/projects/:id', async (req, reply) => {
+        const project = sheldon.getProject(req.params.id);
+        if (!project) return reply.status(404).send({ error: 'Project not found' });
+
+        // Parse phase results for the one-pager
+        const onePager: Record<string, unknown> = {};
+        for (const [phase, data] of Object.entries(project.phases)) {
+            if (data.status === 'done' && data.result) {
+                try {
+                    onePager[phase] = JSON.parse(data.result);
+                } catch {
+                    onePager[phase] = { raw: data.result.slice(0, 2000) };
+                }
+            }
+        }
+
+        return {
+            ok: true,
+            project,
+            onePager,
+            progress: calculateProgress(project.phases),
+        };
+    });
+
+    // POST /api/leader/launch — launch a new project pipeline
+    app.post<{ Body: { directive: string } }>('/api/leader/launch', async (req, reply) => {
+        const { directive } = req.body;
+        if (!directive || typeof directive !== 'string' || directive.trim().length < 3) {
+            return reply.status(400).send({ error: 'Directive must be at least 3 characters' });
+        }
+
+        const projectId = await sheldon.launchProject(directive.trim());
+
+        broadcast('sheldon_project_launched', { projectId, directive });
+
+        return { ok: true, projectId, message: `🧠 Sheldon acknowledged. Pipeline launched for: "${directive}"` };
+    });
+
+    // POST /api/leader/projects/:id/abort — abort a pipeline
+    app.post<{ Params: { id: string } }>('/api/leader/projects/:id/abort', async (req, reply) => {
+        const success = sheldon.abortProject(req.params.id);
+        if (!success) return reply.status(404).send({ error: 'Project not found or not active' });
+
+        broadcast('sheldon_project_aborted', { projectId: req.params.id });
+
+        return { ok: true, message: 'Pipeline aborted' };
+    });
+
+    // Helper function to calculate pipeline progress percentage
+    function calculateProgress(phases: Record<string, { status: string }>): number {
+        const phaseList = Object.values(phases);
+        const done = phaseList.filter(p => p.status === 'done').length;
+        const running = phaseList.filter(p => p.status === 'running').length;
+        return Math.round(((done + running * 0.5) / phaseList.length) * 100);
+    }
 
     return app;
 }

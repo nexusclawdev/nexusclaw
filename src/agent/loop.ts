@@ -25,6 +25,8 @@ import type { Config } from '../config/schema.js';
 import { resolvePrimaryModel } from '../config/schema.js';
 import { RateLimiter } from '../security/rate-limiter.js';
 import { hooks } from '../hooks/index.js';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export class AgentLoop {
     private bus: MessageBus;
@@ -338,6 +340,37 @@ export class AgentLoop {
             return createOutbound(msg.channel, msg.chatId,
                 `🔊 Verbose mode: **${toggle === 'on' ? 'ON' : 'OFF'}**`);
         }
+        if (cmd === '/sheldon') {
+            const sheldonDir = join(process.cwd(), '.sheldon');
+            if (!existsSync(sheldonDir)) {
+                return createOutbound(msg.channel, msg.chatId, '🧠 **Sheldon:** No projects found in `.sheldon` directory.');
+            }
+            const projects = readdirSync(sheldonDir).filter(f => f.startsWith('sheldon_'));
+            if (projects.length === 0) {
+                return createOutbound(msg.channel, msg.chatId, '🧠 **Sheldon:** No active projects found.');
+            }
+
+            let statusReport = '🧠 **Sheldon Orchestrator Projects:**\n\n';
+            for (const id of projects.slice(-3)) { // Show last 3
+                const pPath = join(sheldonDir, id);
+                const hasResearch = existsSync(join(pPath, 'research-synthesis.json'));
+                const hasValidation = existsSync(join(pPath, 'validation-report.json'));
+                const hasFrontend = existsSync(join(pPath, 'frontend'));
+                const hasBackend = existsSync(join(pPath, 'backend'));
+
+                statusReport += `📂 **ID:** \`${id}\`\n`;
+                statusReport += `Status: ${hasBackend ? '🚀 Building Backend' : hasFrontend ? '🎨 Building Frontend' : hasValidation ? '⚖️ Validating' : hasResearch ? '🔍 Research Done' : '⚙️ Researching...'}\n`;
+
+                if (hasResearch) {
+                    try {
+                        const research = JSON.parse(readFileSync(join(pPath, 'research-synthesis.json'), 'utf-8'));
+                        statusReport += `💡 Discovery: *${research.executive_summary.slice(0, 100)}...*\n`;
+                    } catch { }
+                }
+                statusReport += `\n`;
+            }
+            return createOutbound(msg.channel, msg.chatId, statusReport);
+        }
 
         // Memory consolidation (background)
         if (session.messages.length > this.memoryWindow && !this.consolidating.has(key)) {
@@ -383,26 +416,22 @@ export class AgentLoop {
         // Second priority: Check message content for agent mentions (always check, even if chatId matched)
         const mentionedAgents: string[] = [];
         for (const agent of allAgents) {
-            // Match "@elena", "use elena", "ask elena", or just "elena" as a distinct word
-            const mentionRegex = new RegExp(`\\b(?:use|ask|@)?\\s*${agent.name}\\b`, 'i');
+            const name = agent.name.trim();
+            // Match "@name", "use name", "ask name", or just "name" as a distinct word
+            const mentionRegex = new RegExp(`\\b(?:use|ask|@)?\\s*${name}\\b`, 'i');
             if (mentionRegex.test(contentLower)) {
                 mentionedAgents.push(agent.id);
-                console.log(`[loop] 🎯 Agent mention detected: ${agent.name} (${agent.id})`);
-                console.log(`[loop] 🔍 Debug: routedAgentId=${routedAgentId}, session.agentId=${(session as any).agentId}, agent.id=${agent.id}`);
-                // ALWAYS route to mentioned agent, even if chatId routing happened
-                // This allows mentioning other agents while in a specific agent's chat
+
+                // Switch session identity
                 if ((session as any).agentId !== agent.id) {
                     (session as any).agentId = agent.id;
-                    // DON'T clear session - just switch the agent identity
-                    // Clearing removes all context and causes empty responses
                     this.sessions.save(session);
-                    routedAgentId = agent.id; // Override any previous routing
-                    console.log(`[loop] ✅ Routed to agent: ${agent.name} (${agent.id})`);
+                    routedAgentId = agent.id;
                     if (progressFn) {
-                        await progressFn(`🔄 **Routing to agent:** ${agent.name} (${agent.role})`);
+                        await progressFn(`🔄 **Routing to agent:** ${name} (${agent.role})`);
                     }
                 } else {
-                    console.log(`[loop] ⚠️ Routing skipped: already on this agent`);
+                    routedAgentId = agent.id; // Keep as routed
                 }
             }
         }
@@ -444,6 +473,8 @@ export class AgentLoop {
             chatId: msg.chatId,
             agentName: activeAgent?.name,
             agentRole: activeAgent?.role,
+            agentId: activeAgentId,
+            currentTaskId: activeAgent?.current_task_id || undefined,
         });
 
         console.log(`[loop] 📋 Building context: ${initialMessages.length} messages, agent: ${activeAgent?.name}, history: ${session.messages.length} msgs`);
@@ -485,15 +516,23 @@ export class AgentLoop {
         const responseText = finalContent || "I've completed processing but have no response.";
         console.log(`[loop] 💭 LLM Response: ${responseText.substring(0, 150)}`);
 
-        // Reward XP and set back to idle for the active agent
-        if (activeAgent) {
+        // Reward XP but keep agent on task if task is still in_progress
+        if (activeAgent && taskId) {
+            const tasks = this.db.getTasks({ assigned_agent_id: activeAgent.id });
+            const task = tasks.find(t => t.id === taskId);
+            const shouldStayOnTask = task && task.status === 'in_progress';
+
             this.db.updateAgent(activeAgent.id, {
-                status: 'idle',
-                current_task_id: null,
+                status: shouldStayOnTask ? 'working' : 'idle',
+                current_task_id: shouldStayOnTask ? taskId : null,
                 xp: (activeAgent.xp || 0) + 10,
                 tasks_completed: (activeAgent.tasks_completed || 0) + (toolsUsed.length > 0 ? 1 : 0)
             });
-            hooks.emit('agent:status_update', { agentId: activeAgent.id, status: 'idle', taskId: null });
+            hooks.emit('agent:status_update', {
+                agentId: activeAgent.id,
+                status: shouldStayOnTask ? 'working' : 'idle',
+                taskId: shouldStayOnTask ? taskId : null
+            });
         }
 
         // Save to session
@@ -680,6 +719,13 @@ export class AgentLoop {
                 if (taskId && finalContent) {
                     this.db.addTaskLog(taskId, 'agent', `✅ Final: ${finalContent.slice(0, 500)}`);
                     this.db.updateTask(taskId, { status: 'done', completed_at: Date.now() });
+
+                    // Broadcast task completion for real-time UI updates
+                    const allTasks = this.db.getTasks();
+                    const completedTask = allTasks.find(t => t.id === taskId);
+                    if (completedTask) {
+                        // Note: Hook emission removed - 'task:updated' not in HookEventType
+                    }
                 }
                 break;
             }

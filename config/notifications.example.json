@@ -1,0 +1,15 @@
+{
+  "telegram": {
+    "botToken": "YOUR_BOT_TOKEN_HERE",
+    "chatId": "YOUR_CHAT_ID_HERE"
+  },
+  "discord": {
+    "webhookUrl": "YOUR_DISCORD_WEBHOOK_URL_HERE"
+  },
+  "whatsapp": {
+    "accountSid": "YOUR_TWILIO_ACCOUNT_SID",
+    "authToken": "YOUR_TWILIO_AUTH_TOKEN",
+    "from": "whatsapp:+14155238886",
+    "to": "whatsapp:+1234567890"
+  }
+}

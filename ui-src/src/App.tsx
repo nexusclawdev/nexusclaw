@@ -16,6 +16,8 @@ import { MissionControl } from "./components/MissionControl";
 import IntelligenceLab from "./components/IntelligenceLab";
 import AgentDetail from "./components/AgentDetail";
 import { ChatPanel } from "./components/ChatPanel";
+import SwarmLink from "./components/SwarmLink";
+import LeaderDashboard from "./components/LeaderDashboard";
 
 import { useWebSocket } from "./hooks/useWebSocket";
 import * as api from "./api";
@@ -32,7 +34,7 @@ import type {
   CliStatusMap
 } from "./types";
 
-type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control" | "intelligence";
+type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control" | "intelligence" | "swarm" | "leader";
 
 // Error Boundary to prevent whole-app crashes from one view
 class ViewErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -308,10 +310,28 @@ export default function App() {
             onCreateProject={async (p) => { await api.createProject(p); fetchData(); }}
           />
         );
+      case "swarm":
+        return (
+          <ViewErrorBoundary key={view}>
+            <SwarmLink
+              agents={agents}
+              tasks={tasks}
+              messages={messages}
+              departments={departments}
+              onChatAgent={(agent) => setChatAgent(agent)}
+            />
+          </ViewErrorBoundary>
+        );
       case "intelligence":
         return (
           <ViewErrorBoundary key={view}>
             <IntelligenceLab agents={agents} />
+          </ViewErrorBoundary>
+        );
+      case "leader":
+        return (
+          <ViewErrorBoundary key={view}>
+            <LeaderDashboard />
           </ViewErrorBoundary>
         );
       default:

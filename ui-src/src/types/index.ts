@@ -209,7 +209,10 @@ export type WSEventType =
   | 'ceo_office_call'
   | 'chat_stream'
   | 'task_report'
-  | 'connected';
+  | 'connected'
+  | 'sheldon_progress'
+  | 'sheldon_project_launched'
+  | 'sheldon_project_aborted';
 
 export interface WSEvent {
   type: WSEventType;

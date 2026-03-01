@@ -4,7 +4,7 @@ import { Activity } from "lucide-react";
 import { useI18n } from "../i18n";
 import type { Department, Agent, CompanySettings } from "../types";
 
-export type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control" | "intelligence";
+export type View = "office" | "dashboard" | "tasks" | "skills" | "settings" | "mission-control" | "intelligence" | "swarm" | "leader";
 
 interface SidebarProps {
   currentView: View;
@@ -46,9 +46,25 @@ const IconIntelligence = () => (
     <path d="M12 2v8" /><path d="m4.93 10.93 1.41 1.41" /><path d="M2 18h2" /><path d="M20 18h2" /><path d="m19.07 10.93-1.41 1.41" /><path d="M22 22H2" /><path d="m8 22 4-10 4 10" /><circle cx="12" cy="5" r="3" />
   </svg>
 );
+const IconSwarm = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="5" cy="12" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="19" cy="19" r="2" />
+    <path d="M7 12h10M17 5l-6 5M17 19l-6-5" />
+  </svg>
+);
+const IconLeader = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2a4 4 0 0 0-4 4c0 2 1.5 3.5 4 5 2.5-1.5 4-3 4-5a4 4 0 0 0-4-4z" />
+    <path d="M12 11v4" /><path d="M8 15h8" />
+    <path d="M6 19l2-4" /><path d="M18 19l-2-4" />
+    <circle cx="12" cy="5" r="1.5" fill="currentColor" />
+  </svg>
+);
 
 const NAV_ITEMS: { view: View; Icon: () => React.ReactElement; label: string }[] = [
+  { view: "leader", Icon: IconLeader, label: "🧠 Sheldon" },
   { view: "dashboard", Icon: IconDashboard, label: "Active Agents" },
+  { view: "swarm", Icon: IconSwarm, label: "Swarm Link" },
   { view: "office", Icon: IconOffice, label: "Office View" },
   { view: "tasks", Icon: IconTasks, label: "Task Board" },
   { view: "settings", Icon: IconCliOAuth, label: "CLI & OAuth" },

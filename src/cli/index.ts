@@ -26,6 +26,7 @@ v8.setFlagsFromString('--max-old-space-size=256');
 import { loadConfig, saveConfig, getDefaultConfig, getHomeDir, getWorkspaceDir, resolvePrimaryModel } from '../config/schema.js';
 import { MessageBus } from '../bus/index.js';
 import { AgentLoop } from '../agent/loop.js';
+import { TaskWorker } from '../agent/task-worker.js';
 import { Database } from '../db/database.js';
 import { createServer } from '../server/api.js';
 import { createProvider } from '../providers/index.js';
@@ -37,6 +38,8 @@ import { cronCmd } from './cron.js';
 import { migrateCmd } from './migrate.js';
 import { pairingCmd } from './pairing.js';
 import { displayLogo } from './logo.js';
+import type { NotificationConfig } from '../notifications/index.js';
+import { readFileSync } from 'node:fs';
 
 const program = new Command();
 
@@ -191,11 +194,34 @@ program
         }
 
         console.log(`\n${chalk.cyan('🐾')}  ${chalk.bold('NexusClaw Gateway running.')} ${chalk.dim('Press Ctrl+C to stop.')}\n`);
-        if (agent) agent.run();
+
+        // Start agent loop and autonomous task worker
+        let taskWorker: TaskWorker | null = null;
+        if (agent) {
+            agent.run();
+
+            // Start autonomous task execution worker
+            let notificationConfig: NotificationConfig | undefined;
+            const notifPath = join(getHomeDir(), 'config', 'notifications.json');
+            if (existsSync(notifPath)) {
+                try {
+                    notificationConfig = JSON.parse(readFileSync(notifPath, 'utf-8'));
+                    console.log(chalk.green('✅ Notifications enabled'));
+                } catch (err) {
+                    console.warn(chalk.yellow('⚠️  Invalid notifications.json, skipping'));
+                }
+            }
+
+            taskWorker = new TaskWorker(db, agent, bus, notificationConfig);
+            taskWorker.start().catch(err => {
+                console.error(chalk.red('TaskWorker error:'), err);
+            });
+        }
 
         // Graceful shutdown
         const shutdown = async () => {
             console.log('\n🛑 Shutting down...');
+            if (taskWorker) taskWorker.stop();
             if (agent) agent.stop();
             for (const ch of channels) {
                 await ch.stop();
