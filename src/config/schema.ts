@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 const ProviderConfigSchema = z.object({
     apiKey: z.string().optional(),
     apiBase: z.string().optional(),
+    baseURL: z.string().optional(),
     enabled: z.boolean().optional(),
     model: z.string().optional(),
 });

@@ -1,0 +1,1 @@
+import Database from 'better-sqlite3'; const db = new Database('C:/Users/THOR/.nexusclaw/workspace/claw.db'); console.log(db.prepare('SELECT id, name, model FROM agents').all());

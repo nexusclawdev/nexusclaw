@@ -554,6 +554,16 @@ async function runOnboardWizardInternal(autoStart: boolean = false): Promise<voi
         console.log(chalk.dim('│'));
     }
 
+    // Enforce strictly ONE active provider
+    if (selectedProvider !== 'skip' && config.providers) {
+        const providersObj = config.providers as any;
+        for (const provKey of Object.keys(providersObj)) {
+            if (providersObj[provKey]) {
+                providersObj[provKey].enabled = (provKey === selectedProvider);
+            }
+        }
+    }
+
     // Step 4: Channels
     const CHANNELS = [
         { name: 'Telegram (Bot API)', value: 'telegram' },

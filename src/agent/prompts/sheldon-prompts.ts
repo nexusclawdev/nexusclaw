@@ -18,7 +18,7 @@
  *   5. No stubs, no TODOs, no placeholders — ever
  */
 
-import { MASTER_ERROR_PREVENTION_RULES } from './master-error-prevention';
+import { MASTER_ERROR_PREVENTION_RULES } from './master-error-prevention.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SHELDON CORE IDENTITY

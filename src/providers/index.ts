@@ -25,37 +25,37 @@ export function createProvider(config: Config): LLMProvider {
         return new FailoverProvider(provider, [primaryModel, ...fallbacks]);
     }
 
-    // Determine which provider has an API key
+    // Determine which provider is explicitly enabled
 
     // Custom provider (highest priority - user explicitly configured)
-    if ((providers as any).custom?.baseURL) {
+    if ((providers as any).custom?.enabled && (providers as any).custom?.baseURL) {
         return wrapIfNeeded(new OpenAIProvider(
             (providers as any).custom.apiKey || 'not-required',
             (providers as any).custom.baseURL
         ), 'custom');
     }
 
-    if (providers.openrouter?.apiKey) {
+    if (providers.openrouter?.enabled && providers.openrouter?.apiKey) {
         return wrapIfNeeded(new OpenRouterProvider(providers.openrouter.apiKey), 'openrouter');
     }
 
-    if (providers.anthropic?.apiKey) {
+    if (providers.anthropic?.enabled && providers.anthropic?.apiKey) {
         return wrapIfNeeded(new AnthropicProvider(providers.anthropic.apiKey), 'anthropic');
     }
 
     // Google Gemini — OpenAI-compatible endpoint
-    if ((providers as any).google?.apiKey) {
+    if ((providers as any).google?.enabled && (providers as any).google?.apiKey) {
         return wrapIfNeeded(new OpenAIProvider(
             (providers as any).google.apiKey,
             'https://generativelanguage.googleapis.com/v1beta/openai/'
         ), 'google');
     }
 
-    if (providers.xai?.apiKey) {
+    if (providers.xai?.enabled && providers.xai?.apiKey) {
         return wrapIfNeeded(new OpenAIProvider(providers.xai.apiKey, 'https://api.x.ai/v1'), 'xai');
     }
 
-    if (providers.openai?.apiKey) {
+    if (providers.openai?.enabled && providers.openai?.apiKey) {
         return wrapIfNeeded(new OpenAIProvider(providers.openai.apiKey, providers.openai.apiBase), 'openai');
     }
 
