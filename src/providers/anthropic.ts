@@ -43,11 +43,17 @@ export class AnthropicProvider extends LLMProvider {
                         content.push({ type: 'text', text: msg.content });
                     }
                     for (const tc of msg.tool_calls) {
+                        let parsedArgs = {};
+                        try {
+                            parsedArgs = JSON.parse(tc.function.arguments || '{}');
+                        } catch (e) {
+                            console.warn(`[Anthropic] Failed to parse tool arguments for ${tc.function.name}:`, e);
+                        }
                         content.push({
                             type: 'tool_use',
                             id: tc.id,
                             name: tc.function.name,
-                            input: JSON.parse(tc.function.arguments || '{}'),
+                            input: parsedArgs,
                         });
                     }
                     chatMessages.push({ role: 'assistant', content });

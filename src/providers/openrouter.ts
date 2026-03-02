@@ -59,13 +59,31 @@ export class OpenRouterProvider extends LLMProvider {
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
                 const response = await this.client.chat.completions.create(params);
+
+                if (!response.choices || response.choices.length === 0) {
+                    return {
+                        content: null,
+                        toolCalls: [],
+                        finishReason: 'error',
+                        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+                    };
+                }
+
                 const choice = response.choices[0];
 
-                const toolCalls: ToolCallRequest[] = (choice?.message?.tool_calls || []).map(tc => ({
-                    id: tc.id,
-                    name: tc.function.name,
-                    arguments: JSON.parse(tc.function.arguments || '{}'),
-                }));
+                const toolCalls: ToolCallRequest[] = (choice?.message?.tool_calls || []).map(tc => {
+                    let parsedArgs = {};
+                    try {
+                        parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+                    } catch (e) {
+                        console.warn(`[OpenRouter] Failed to parse tool arguments for ${tc.function.name}:`, e);
+                    }
+                    return {
+                        id: tc.id,
+                        name: tc.function.name,
+                        arguments: parsedArgs,
+                    };
+                });
 
                 return {
                     content: choice?.message?.content || null,

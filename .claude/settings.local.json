@@ -56,7 +56,8 @@
       "Bash(nexusclaw gateway:*)",
       "Bash(findstr :3100)",
       "Bash(xargs -I {} taskkill /F /PID {})",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(xargs kill)"
     ]
   },
   "outputStyle": "default"

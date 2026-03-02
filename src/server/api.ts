@@ -2005,7 +2005,7 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
             ? (await import('../config/schema.js')).resolvePrimaryModel(config.agents.defaults.model)
             : 'gpt-4o-mini',
         workspace: process.cwd(),
-        maxWorkerIterations: 10,
+        maxWorkerIterations: 30,
         maxTokens: config.agents?.defaults?.maxTokens || 16000,
         temperature: config.agents?.defaults?.temperature || 0.7,
         braveApiKey: config.providers?.brave?.apiKey,

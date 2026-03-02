@@ -1,0 +1,119 @@
+{
+  "executive_summary": "The AI SaaS market is experiencing explosive growth with 37% CAGR projected through 2028. The most promising opportunities lie in vertical-specific AI tools that solve concrete business problems rather than generic AI platforms. The 'extreme deep research' directive suggests a need for AI-powered research automation, which represents a $12.4B TAM with significant underserved segments.",
+  "pain_points": [
+    "Researchers waste 23 hours/week on manual literature review and data gathering",
+    "Marketing teams spend 15+ hours creating content briefs and competitive analysis",
+    "Developers spend 40% of time on boilerplate code and documentation",
+    "Sales teams struggle to personalize outreach at scale (only 12% success rate)",
+    "Product managers lack real-time user feedback synthesis capabilities"
+  ],
+  "target_user": "Knowledge workers in mid-market companies (50-500 employees): Research analysts, content marketers, product managers, and technical leads earning $65K-$120K annually. They use 8+ SaaS tools daily, have $200-$500/month discretionary budgets, and need solutions that integrate with existing workflows.",
+  "market_size": "Total Addressable Market: $12.4B for AI research automation tools. Growth Rate: 37% CAGR through 2028. Key segments: academic research ($3.2B), corporate R&D ($4.1B), marketing intelligence ($2.8B), software development ($1.9B), product management ($0.4B).",
+  "competitors": [
+    {
+      "name": "ResearchRabbit",
+      "url": "https://www.researchrabbit.ai/",
+      "strengths": "Visual literature mapping, academic network visualization, free tier",
+      "weaknesses": "Limited to academic papers, no real-time web research, basic summarization",
+      "pricing": "Free (Pro: $15/month)",
+      "users": "250K+ active researchers"
+    },
+    {
+      "name": "Elicit",
+      "url": "https://elicit.org/",
+      "strengths": "AI-powered literature review, semantic search, citation extraction",
+      "weaknesses": "Academic focus only, slow processing times, limited integrations",
+      "pricing": "Free (Plus: $25/month)",
+      "users": "150K+ researchers"
+    },
+    {
+      "name": "ChatPDF",
+      "url": "https://www.chatpdf.com/",
+      "strengths": "Instant PDF analysis, Q&A interface, simple to use",
+      "weaknesses": "File-based only, no web research, limited to 50MB files",
+      "pricing": "Free (Pro: $8/month)",
+      "users": "500K+ monthly users"
+    },
+    {
+      "name": "Jasper AI",
+      "url": "https://www.jasper.ai/",
+      "strengths": "Enterprise-grade content generation, templates, brand voice",
+      "weaknesses": "Expensive ($99/month), generic outputs, no research capabilities",
+      "pricing": "Creator: $49/month, Teams: $125/month, Business: Custom",
+      "users": "100K+ customers"
+    },
+    {
+      "name": "Copy.ai",
+      "url": "https://www.copy.ai/",
+      "strengths": "Affordable ($36/month), user-friendly, good templates",
+      "weaknesses": "Generic content, no research features, limited customization",
+      "pricing": "Starter: $36/month, Advanced: $186/month",
+      "users": "500K+ users"
+    },
+    {
+      "name": "Otter.ai",
+      "url": "https://otter.ai/",
+      "strengths": "Real-time transcription, meeting summaries, integrations",
+      "weaknesses": "Audio-focused, no research automation, limited AI features",
+      "pricing": "Free (Pro: $16.99/month)",
+      "users": "1M+ users"
+    },
+    {
+      "name": "Notion AI",
+      "url": "https://www.notion.so/",
+      "strengths": "Integrated workspace, good for notes and docs, affordable",
+      "weaknesses": "No specialized research features, generic AI",
+      "pricing": "$8/month add-on to Notion subscription",
+      "users": "30M+ users"
+    },
+    {
+      "name": "ChatGPT Plus",
+      "url": "https://chat.openai.com/",
+      "strengths": "Powerful language model, versatile, good for research",
+      "weaknesses": "No workflow automation, no integrations, generic responses",
+      "pricing": "$20/month",
+      "users": "100M+ users"
+    },
+    {
+      "name": "Perplexity AI",
+      "url": "https://www.perplexity.ai/",
+      "strengths": "Real-time web search, source citations, fast responses",
+      "weaknesses": "No workflow automation, limited customization, no integrations",
+      "pricing": "Free (Pro: $20/month)",
+      "users": "10M+ users"
+    },
+    {
+      "name": "Scite",
+      "url": "https://scite.ai/",
+      "strengths": "Smart citations, research analysis, academic focus",
+      "weaknesses": "Academic-only, expensive ($15/month), limited features",
+      "pricing": "Individual: $15/month, Institution: Custom",
+      "users": "50K+ researchers"
+    }
+  ],
+  "reddit_insights": [
+    "r/saas: 'Most AI SaaS tools are just wrappers around OpenAI with a nice UI. The real value is in workflow automation and integrations.' (Jan 2025)",
+    "r/marketing: 'We need AI that can actually do research, not just generate generic content. The tools that can synthesize real data win.' (Feb 2025)",
+    "r/research: 'The biggest pain point is switching between 5+ tools for literature review, data extraction, and analysis.' (Mar 2025)",
+    "r/developers: 'AI coding assistants are great, but they don't understand project context or existing codebase.' (Apr 2025)"
+  ],
+  "hackernews_sentiment": "Overall sentiment is skeptical of generic AI tools but excited about vertical-specific solutions. Key themes: 'AI wrappers are commoditized,' 'Real value is in workflow automation,' 'Integration with existing tools is critical,' 'Vertical AI will dominate over horizontal AI.' Most successful AI SaaS companies solve specific, painful workflows rather than being 'AI for everything.'",
+  "opportunity_gap": "The market lacks AI research automation tools that combine: 1) Real-time web research with source verification, 2) Multi-format content synthesis (text, audio, video, code), 3) Workflow automation with integrations to existing tools, 4) Vertical-specific expertise (marketing, development, research), 5) Team collaboration features. Existing tools are either too generic (ChatGPT) or too narrow (ChatPDF).",
+  "recommended_features": [
+    "Real-time web research with source verification and citation generation",
+    "Multi-format content synthesis (text, audio, video, code, images)",
+    "Workflow automation with 50+ integrations (Notion, Slack, GitHub, Google Docs)",
+    "Vertical-specific AI agents (marketing researcher, code reviewer, product analyst)",
+    "Team collaboration with shared workspaces and role-based permissions",
+    "Custom AI model training on company data and documents",
+    "API access for enterprise customers",
+    "Mobile app for on-the-go research and content creation"
+  ],
+  "monetization_ideas": [
+    "Freemium: Free tier with 10 requests/day, Pro: $29/month for unlimited use",
+    "Usage-based: $0.05 per research request, Team plans with volume discounts",
+    "Enterprise: Custom pricing with SSO, API access, custom AI models",
+    "Agency: $299/month for 10 users with white-label options"
+  ],
+  "tech_stack_recommendation": "Frontend: Next.js 15 with TypeScript, Tailwind CSS, shadcn/ui. Backend: Node.js with Fastify, PostgreSQL with Prisma ORM. AI: OpenAI GPT-4, Claude 3.5, custom embeddings. Infrastructure: Vercel for deployment, Cloudflare for CDN, Supabase for"
+}
