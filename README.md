@@ -128,31 +128,31 @@ pnpm cli gateway
 
 ```bash
 # Interactive setup wizard (run this first!)
-nexusclaw onboard
+pnpm cli onboard
 
 # Start full platform (dashboard + agents + channels)
-nexusclaw gateway
+pnpm cli gateway
 
 # Chat with agent via CLI
-nexusclaw agent
+pnpm cli agent
 
 # Check system status
-nexusclaw status
+pnpm cli status
 
 # Diagnose issues
-nexusclaw doctor
+pnpm cli doctor
 
 # Manage skills
-nexusclaw skills list
-nexusclaw skills install <skill-name>
+pnpm cli skills list
+pnpm cli skills install <skill-name>
 
 # Schedule tasks
-nexusclaw cron list
-nexusclaw cron add "0 9 * * *" "Daily task" "command"
+pnpm cli cron list
+pnpm cli cron add "0 9 * * *" "Daily task" "command"
 
 # OAuth management
-nexusclaw auth status
-nexusclaw auth login --provider google
+pnpm cli auth status
+pnpm cli auth login --provider google
 ```
 
 ---

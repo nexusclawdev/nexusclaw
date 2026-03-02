@@ -15,7 +15,8 @@
         "agent": "npx cross-env NODE_OPTIONS=--max-old-space-size=2048 tsx --no-warnings src/cli/index.ts agent",
         "gateway": "npx cross-env NODE_OPTIONS=--max-old-space-size=2048 tsx --no-warnings src/cli/index.ts gateway",
         "status": "tsx --no-warnings src/cli/index.ts status",
-        "onboard": "tsx --no-warnings src/cli/index.ts onboard"
+        "onboard": "tsx --no-warnings src/cli/index.ts onboard",
+        "cli": "node --no-warnings dist/cli/index.js"
     },
     "engines": {
         "node": ">=20.0.0"
