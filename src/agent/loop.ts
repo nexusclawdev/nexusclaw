@@ -14,6 +14,7 @@
 import { MessageBus, InboundMessage, OutboundMessage, createOutbound, sessionKey } from '../bus/index.js';
 import { ContextBuilder } from './context.js';
 import { MemoryStore } from './memory.js';
+import { MemoryPersistence, ConversationState } from './memory-persistence.js';
 import { ToolRegistry, ExecTool, ReadFileTool, WriteFileTool, EditFileTool, ListDirTool, WebSearchTool, WebFetchTool, MessageTool, BrowseTool, SpawnTool, createApplyPatchTool, FindUsagesTool, CodeAnalysisTool, CodeDiffTool, GitHubTool, SwarmTool, TimeTravelTool, SkillFusionTool } from '../tools/index.js';
 import { TimelineRecorder } from './timeline-recorder.js';
 import { FusionEngine } from './fusion-engine.js';
@@ -25,6 +26,7 @@ import type { Config } from '../config/schema.js';
 import { resolvePrimaryModel } from '../config/schema.js';
 import { RateLimiter } from '../security/rate-limiter.js';
 import { hooks } from '../hooks/index.js';
+import { NotificationService } from '../notifications/index.js';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -48,11 +50,17 @@ export class AgentLoop {
     private tools: ToolRegistry;
     private security: SecurityGuard;
     private memory: MemoryStore;
+    private memoryPersistence: MemoryPersistence;
     private rateLimiter: RateLimiter | null;
     private running = false;
     private consolidating = new Set<string>();
     private timeline: TimelineRecorder;
     private fusion: FusionEngine;
+    private currentToolsUsed: string[] = [];
+    private currentFilesModified: string[] = [];
+    private currentFilesCreated: string[] = [];
+    private notificationService: NotificationService | null = null;
+    private config: Config;
 
     constructor(
         bus: MessageBus,
@@ -65,6 +73,7 @@ export class AgentLoop {
         this.provider = provider;
         this.db = db;
         this.workspace = workspace;
+        this.config = config;
         this.model = resolvePrimaryModel(config.agents.defaults.model);
         this.maxIterations = config.agents.defaults.maxIterations;
         this.temperature = config.agents.defaults.temperature;
@@ -85,9 +94,28 @@ export class AgentLoop {
         this.tools = new ToolRegistry();
         this.security = new SecurityGuard(config.security);
         this.memory = new MemoryStore(workspace);
+        this.memoryPersistence = new MemoryPersistence(workspace);
 
         this.timeline = new TimelineRecorder(db);
         this.fusion = new FusionEngine(db);
+
+        // Initialize notification service if configured
+        const notifConfig: any = {};
+        if (config.channels.telegram?.enabled && config.channels.telegram?.token) {
+            notifConfig.telegram = {
+                botToken: config.channels.telegram.token,
+                chatId: config.channels.telegram.allowFromUserIds?.[0]?.toString() || '',
+            };
+        }
+        if (config.channels.discord?.enabled && config.channels.discord?.token) {
+            // Discord webhook URL would need to be in config
+            notifConfig.discord = {
+                webhookUrl: process.env.DISCORD_WEBHOOK_URL || '',
+            };
+        }
+        if (Object.keys(notifConfig).length > 0) {
+            this.notificationService = new NotificationService(notifConfig);
+        }
 
         this.registerDefaultTools(config);
 
@@ -289,7 +317,8 @@ export class AgentLoop {
                 '`/status` — Show agent status + token estimate\n' +
                 '`/compact` — Summarize & compress session context\n' +
                 '`/think low|high|off` — Set thinking depth\n' +
-                '`/verbose on|off` — Toggle verbose tool output\n'
+                '`/verbose on|off` — Toggle verbose tool output\n' +
+                '`/continue` — Resume from last saved conversation state\n'
             );
         }
         if (cmd === '/status') {
@@ -339,6 +368,22 @@ export class AgentLoop {
             this.sessions.save(session);
             return createOutbound(msg.channel, msg.chatId,
                 `🔊 Verbose mode: **${toggle === 'on' ? 'ON' : 'OFF'}**`);
+        }
+        if (cmd === '/continue') {
+            const savedState = this.memoryPersistence.loadLatestConversationState();
+            if (!savedState) {
+                return createOutbound(msg.channel, msg.chatId, '❌ No saved conversation state found.');
+            }
+            const continuationPrompt = this.memoryPersistence.generateContinuationPrompt(savedState);
+            session.addMessage('system', continuationPrompt);
+            this.sessions.save(session);
+            return createOutbound(msg.channel, msg.chatId,
+                `✅ **Conversation restored from ${new Date(savedState.timestamp).toLocaleString()}**\n\n` +
+                `📋 Task: ${savedState.taskInProgress}\n` +
+                `✅ Completed: ${savedState.completedSteps.length} steps\n` +
+                `⏳ Pending: ${savedState.pendingSteps.length} steps\n\n` +
+                `Ready to continue where we left off!`
+            );
         }
         if (cmd === '/sheldon') {
             const sheldonDir = join(process.cwd(), '.sheldon');
@@ -475,6 +520,7 @@ export class AgentLoop {
             agentRole: activeAgent?.role,
             agentId: activeAgentId,
             currentTaskId: activeAgent?.current_task_id || undefined,
+            model: this.model,
         });
 
         console.log(`[loop] 📋 Building context: ${initialMessages.length} messages, agent: ${activeAgent?.name}, history: ${session.messages.length} msgs`);
@@ -506,6 +552,11 @@ export class AgentLoop {
         this.db.updateAgent(activeAgentId, { status: 'working', current_task_id: taskId });
         hooks.emit('agent:status_update', { agentId: activeAgentId, status: 'working', taskId });
 
+        // Reset tracking for this turn
+        this.currentToolsUsed = [];
+        this.currentFilesModified = [];
+        this.currentFilesCreated = [];
+
         // Run Nexus execution cycle
         const { content: finalContent, toolsUsed } = await this.executeNexusCycle(
             initialMessages,
@@ -513,7 +564,15 @@ export class AgentLoop {
             progressFn,
         );
 
-        const responseText = finalContent || "I've finished working on that. Let me know if you need anything else or want to see the results!";
+        // If finalContent is empty, check if tools were used
+        let responseText = finalContent;
+        if (!responseText) {
+            if (toolsUsed.length > 0) {
+                responseText = `I've completed the requested actions using ${toolsUsed.length} tool(s): ${toolsUsed.join(', ')}`;
+            } else {
+                responseText = "I received your message but didn't generate a response. This might be a provider issue. Please try again or check your LLM configuration.";
+            }
+        }
         console.log(`[loop] 💭 LLM Response: ${responseText.substring(0, 150)}`);
 
         // Reward XP but keep agent on task if task is still in_progress
@@ -610,19 +669,56 @@ export class AgentLoop {
         );
         this.timeline.recordSnapshot(currentMessages);
 
-        while (iteration < this.maxIterations) {
-            iteration++;
+        try {
+            while (iteration < this.maxIterations) {
+                iteration++;
 
-            const response = await this.provider.chat(
-                currentMessages,
-                this.tools.getDefinitions() as any,
-                this.model,
-                this.maxTokens,
-                this.temperature,
-            );
+                let response: LLMResponse;
+                try {
+                    response = await this.provider.chat(
+                        currentMessages,
+                        this.tools.getDefinitions() as any,
+                        this.model,
+                        this.maxTokens,
+                        this.temperature,
+                    );
+                } catch (error: any) {
+                    // Check if it's an API error that requires conversation persistence
+                    const isApiError = this.isRecoverableApiError(error);
 
-            // Record LLM call + response on the timeline
-            this.timeline.recordLLMCall(this.model, currentMessages.length, this.tools.size);
+                    if (isApiError) {
+                        console.error(`[loop] 🚨 API Error detected: ${error.message || error}`);
+
+                        // Save conversation state before failing
+                        const savedState = await this.saveConversationState(msg, currentMessages, toolsUsed, error);
+
+                        // Send notifications to user
+                        await this.notifyApiError(savedState, error);
+
+                        // Automatically restart with saved state after a short delay
+                        console.log(`[loop] 🔄 Auto-restarting conversation in 5 seconds...`);
+                        setTimeout(() => {
+                            this.autoRestartConversation(savedState, msg).catch(err => {
+                                console.error(`[loop] ❌ Auto-restart failed:`, err);
+                            });
+                        }, 5000);
+
+                        // Throw error with helpful message
+                        throw new Error(
+                            `API Error: ${error.status || 'Unknown'}\n` +
+                            `  ${JSON.stringify(error.message || error)}\n\n` +
+                            `💾 Conversation state saved!\n` +
+                            `🔄 Automatically restarting in 5 seconds...\n` +
+                            `📱 Notification sent to your devices.`
+                        );
+                    }
+
+                    // Not a recoverable error, just throw it
+                    throw error;
+                }
+
+                // Record LLM call + response on the timeline
+                this.timeline.recordLLMCall(this.model, currentMessages.length, this.tools.size);
 
             if (hasToolCalls(response)) {
                 // Record LLM response with tool call info
@@ -655,8 +751,16 @@ export class AgentLoop {
                 // Execute each tool
                 for (const tc of response.toolCalls) {
                     toolsUsed.push(tc.name);
+                    this.currentToolsUsed.push(tc.name);
                     console.log(`🔧 ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 100)})`);
 
+                    // Track file operations
+                    if (tc.name === 'write_file' && tc.arguments.path) {
+                        this.currentFilesCreated.push(String(tc.arguments.path));
+                    }
+                    if ((tc.name === 'edit_file' || tc.name === 'apply_patch') && tc.arguments.path) {
+                        this.currentFilesModified.push(String(tc.arguments.path));
+                    }
                     // Security check for browse tool
                     if (tc.name === 'browse' && tc.arguments.url) {
                         const check = this.security.checkUrl(String(tc.arguments.url));
@@ -711,6 +815,13 @@ export class AgentLoop {
                 // No tool calls — final response
                 finalContent = this.stripThink(response.content);
 
+                // Debug logging for empty responses
+                if (!finalContent && response.content) {
+                    console.warn(`[loop] ⚠️ Response content was stripped to null. Original: ${response.content.substring(0, 200)}`);
+                } else if (!finalContent && !response.content) {
+                    console.warn(`[loop] ⚠️ LLM returned empty response. Provider may be misconfigured.`);
+                }
+
                 // Record final LLM response
                 this.timeline.recordLLMResponse(finalContent, false, []);
                 this.timeline.recordSnapshot(currentMessages);
@@ -735,6 +846,222 @@ export class AgentLoop {
         this.timeline.completeTimeline();
 
         return { content: finalContent, toolsUsed };
+        } catch (error) {
+            // Complete timeline even on error
+            this.timeline.completeTimeline();
+            throw error;
+        }
+    }
+
+    /**
+     * Check if error is a recoverable API error that requires conversation persistence
+     */
+    private isRecoverableApiError(error: any): boolean {
+        const status = error?.status || error?.statusCode;
+        const message = error?.message || String(error);
+
+        // API errors that should trigger conversation save
+        const recoverableStatuses = [403, 406, 429, 500, 502, 503, 504];
+        const recoverablePatterns = [
+            /bearer token.*invalid/i,
+            /rate limit/i,
+            /quota exceeded/i,
+            /too many requests/i,
+            /capacity/i,
+            /overloaded/i,
+        ];
+
+        if (status && recoverableStatuses.includes(status)) return true;
+        return recoverablePatterns.some(p => p.test(message));
+    }
+
+    /**
+     * Save conversation state when API error occurs
+     */
+    private async saveConversationState(
+        msg: InboundMessage,
+        messages: ChatMessage[],
+        toolsUsed: string[],
+        error: any
+    ): Promise<ConversationState> {
+        try {
+            const session = this.sessions.getOrCreate(sessionKey(msg));
+            const taskId = msg.metadata.taskId as string | undefined;
+
+            // Extract task info
+            let taskTitle = 'Unknown Task';
+            let taskDescription = msg.content;
+            let completedSteps: string[] = [];
+            let pendingSteps: string[] = [];
+
+            if (taskId) {
+                const allTasks = this.db.getTasks();
+                const task = allTasks.find(t => t.id === taskId);
+                if (task) {
+                    taskTitle = task.title;
+                    taskDescription = task.description || msg.content;
+
+                    // Get task logs to determine completed steps
+                    const logs = this.db.getTaskLogs(taskId);
+                    completedSteps = logs
+                        .filter(l => l.kind === 'tool' || l.kind === 'agent')
+                        .map(l => l.message);
+                }
+            }
+
+            // Build context from recent messages
+            const recentMessages = messages.slice(-5);
+            const currentContext = recentMessages
+                .map(m => `[${m.role}]: ${m.content?.slice(0, 200) || '(tool call)'}`)
+                .join('\n');
+
+            // Extract important decisions from assistant messages
+            const importantDecisions = messages
+                .filter(m => m.role === 'assistant' && m.content)
+                .slice(-3)
+                .map(m => m.content?.slice(0, 150) || '')
+                .filter(Boolean);
+
+            // Determine next actions based on what was in progress
+            const nextActions = [
+                'Resume from where the API error occurred',
+                'Verify all previous steps completed successfully',
+                'Continue with remaining pending tasks',
+            ];
+
+            const state: ConversationState = {
+                timestamp: new Date().toISOString(),
+                conversationId: sessionKey(msg),
+                lastUserMessage: msg.content,
+                taskInProgress: taskTitle,
+                completedSteps: completedSteps.length > 0 ? completedSteps : this.currentToolsUsed.map(t => `Used tool: ${t}`),
+                pendingSteps,
+                filesModified: [...new Set(this.currentFilesModified)],
+                filesCreated: [...new Set(this.currentFilesCreated)],
+                currentContext,
+                importantDecisions,
+                nextActions,
+                errorEncountered: `${error.status || 'Unknown'}: ${error.message || String(error)}`,
+            };
+
+            const savedPath = this.memoryPersistence.saveConversationState(state);
+            console.log(`[loop] 💾 Conversation state saved to: ${savedPath}`);
+
+            return state;
+        } catch (saveError) {
+            console.error(`[loop] ❌ Failed to save conversation state:`, saveError);
+            throw saveError;
+        }
+    }
+
+    /**
+     * Send notifications about API error and auto-recovery
+     */
+    private async notifyApiError(state: ConversationState, error: any): Promise<void> {
+        if (!this.notificationService) {
+            console.log(`[loop] ⚠️ No notification service configured`);
+            return;
+        }
+
+        const message = `🚨 <b>API Error - Auto-Recovery Initiated</b>\n\n` +
+            `<b>Error:</b> ${error.status || 'Unknown'} - ${error.message || String(error)}\n\n` +
+            `<b>Task:</b> ${state.taskInProgress}\n` +
+            `<b>Completed:</b> ${state.completedSteps.length} steps\n` +
+            `<b>Files Modified:</b> ${state.filesModified.length}\n` +
+            `<b>Files Created:</b> ${state.filesCreated.length}\n\n` +
+            `✅ <b>State Saved</b>\n` +
+            `🔄 <b>Auto-restarting in 5 seconds...</b>\n\n` +
+            `The agent will automatically continue where it left off.`;
+
+        try {
+            // Send to all configured channels
+            if (this.notificationService['config'].telegram) {
+                await this.notificationService['sendTelegram'](message);
+                console.log(`[loop] 📱 Telegram notification sent`);
+            }
+            if (this.notificationService['config'].discord) {
+                await this.notificationService['sendDiscord'](message.replace(/<\/?b>/g, '**').replace(/<\/?i>/g, '*'));
+                console.log(`[loop] 💬 Discord notification sent`);
+            }
+            if (this.notificationService['config'].whatsapp) {
+                await this.notificationService['sendWhatsApp'](message.replace(/<\/?[^>]+(>|$)/g, ''));
+                console.log(`[loop] 📞 WhatsApp notification sent`);
+            }
+        } catch (notifError) {
+            console.error(`[loop] ❌ Failed to send notifications:`, notifError);
+        }
+    }
+
+    /**
+     * Automatically restart conversation with saved state
+     */
+    private async autoRestartConversation(state: ConversationState, originalMsg: InboundMessage): Promise<void> {
+        console.log(`[loop] 🔄 Auto-restarting conversation: ${state.conversationId}`);
+
+        try {
+            // Generate continuation prompt
+            const continuationPrompt = this.memoryPersistence.generateContinuationPrompt(state);
+
+            // Create a new inbound message with the continuation prompt
+            const restartMsg: InboundMessage = {
+                channel: originalMsg.channel,
+                senderId: originalMsg.senderId,
+                chatId: originalMsg.chatId,
+                content: continuationPrompt,
+                timestamp: new Date(),
+                media: [],
+                metadata: {
+                    ...originalMsg.metadata,
+                    autoRestart: true,
+                    originalTaskId: originalMsg.metadata.taskId,
+                },
+            };
+
+            // Send notification that restart is happening
+            if (this.notificationService) {
+                const restartNotif = `🔄 <b>Auto-Restart Complete</b>\n\n` +
+                    `Agent is now continuing the task:\n` +
+                    `<b>${state.taskInProgress}</b>\n\n` +
+                    `All context has been restored. The agent will pick up exactly where it left off.`;
+
+                try {
+                    if (this.notificationService['config'].telegram) {
+                        await this.notificationService['sendTelegram'](restartNotif);
+                    }
+                    if (this.notificationService['config'].discord) {
+                        await this.notificationService['sendDiscord'](restartNotif.replace(/<\/?b>/g, '**'));
+                    }
+                    if (this.notificationService['config'].whatsapp) {
+                        await this.notificationService['sendWhatsApp'](restartNotif.replace(/<\/?[^>]+(>|$)/g, ''));
+                    }
+                } catch (e) {
+                    console.error(`[loop] ❌ Failed to send restart notification:`, e);
+                }
+            }
+
+            // Process the restart message through the bus
+            await this.bus.publishInbound(restartMsg);
+
+            console.log(`[loop] ✅ Auto-restart successful`);
+        } catch (restartError) {
+            console.error(`[loop] ❌ Auto-restart failed:`, restartError);
+
+            // Send failure notification
+            if (this.notificationService) {
+                const failureNotif = `❌ <b>Auto-Restart Failed</b>\n\n` +
+                    `Task: ${state.taskInProgress}\n` +
+                    `Error: ${restartError instanceof Error ? restartError.message : String(restartError)}\n\n` +
+                    `Please manually restart the agent or check the logs.`;
+
+                try {
+                    if (this.notificationService['config'].telegram) {
+                        await this.notificationService['sendTelegram'](failureNotif);
+                    }
+                } catch (e) {
+                    console.error(`[loop] ❌ Failed to send failure notification:`, e);
+                }
+            }
+        }
     }
 
     /** Remove <think>…</think> blocks from model output */

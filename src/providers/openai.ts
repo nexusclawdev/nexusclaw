@@ -33,6 +33,7 @@ export class OpenAIProvider extends LLMProvider {
             messages: messages as OpenAI.ChatCompletionMessageParam[],
             max_tokens: maxTokens,
             temperature,
+            stream: false, // Force non-streaming for compatibility
         };
 
         if (tools && tools.length > 0) {
@@ -40,9 +41,59 @@ export class OpenAIProvider extends LLMProvider {
             params.tool_choice = 'auto';
         }
 
-        const response = await this.client.chat.completions.create(params);
+        try {
+            const response = await this.client.chat.completions.create(params);
 
-        if (!response.choices || response.choices.length === 0) {
+            // Debug logging for custom providers
+            if (this.apiBase && this.apiBase.includes('localhost')) {
+                console.log(`[OpenAI/Custom] Response from ${this.apiBase}:`, {
+                    choices: response.choices?.length || 0,
+                    content: response.choices?.[0]?.message?.content?.substring(0, 100) || 'null',
+                    finishReason: response.choices?.[0]?.finish_reason,
+                    hasToolCalls: !!response.choices?.[0]?.message?.tool_calls?.length
+                });
+            }
+
+            if (!response.choices || response.choices.length === 0) {
+                console.warn(`[OpenAI] Empty response from provider`);
+                return {
+                    content: null,
+                    toolCalls: [],
+                    finishReason: 'error',
+                    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+                };
+            }
+
+            const choice = response.choices[0];
+
+            const toolCalls: ToolCallRequest[] = (choice?.message?.tool_calls || []).map(tc => {
+                let parsedArgs = {};
+                try {
+                    parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+                } catch (e) {
+                    console.warn(`[OpenAI] Failed to parse tool arguments for ${tc.function.name}:`, e);
+                }
+                return {
+                    id: tc.id,
+                    name: tc.function.name,
+                    arguments: parsedArgs,
+                };
+            });
+
+            return {
+                content: choice?.message?.content || null,
+                toolCalls,
+                finishReason: choice?.finish_reason || 'stop',
+                usage: {
+                    promptTokens: response.usage?.prompt_tokens || 0,
+                    completionTokens: response.usage?.completion_tokens || 0,
+                    totalTokens: response.usage?.total_tokens || 0,
+                },
+            };
+        } catch (error: any) {
+            console.error(`[OpenAI] Error calling provider:`, error.message || error);
+
+            // Return error as content so user sees it
             return {
                 content: null,
                 toolCalls: [],
@@ -50,32 +101,5 @@ export class OpenAIProvider extends LLMProvider {
                 usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
             };
         }
-
-        const choice = response.choices[0];
-
-        const toolCalls: ToolCallRequest[] = (choice?.message?.tool_calls || []).map(tc => {
-            let parsedArgs = {};
-            try {
-                parsedArgs = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
-            } catch (e) {
-                console.warn(`[OpenAI] Failed to parse tool arguments for ${tc.function.name}:`, e);
-            }
-            return {
-                id: tc.id,
-                name: tc.function.name,
-                arguments: parsedArgs,
-            };
-        });
-
-        return {
-            content: choice?.message?.content || null,
-            toolCalls,
-            finishReason: choice?.finish_reason || 'stop',
-            usage: {
-                promptTokens: response.usage?.prompt_tokens || 0,
-                completionTokens: response.usage?.completion_tokens || 0,
-                totalTokens: response.usage?.total_tokens || 0,
-            },
-        };
     }
 }

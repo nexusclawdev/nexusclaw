@@ -24,6 +24,7 @@ export class ContextBuilder {
         agentRole?: string;
         agentId?: string;
         currentTaskId?: string;
+        model?: string;
     }): ChatMessage[] {
         const messages: ChatMessage[] = [];
 
@@ -87,7 +88,7 @@ export class ContextBuilder {
         }] as ChatMessage[];
     }
 
-    private buildSystemPrompt(opts: { channel?: string, agentName?: string, agentRole?: string, agentId?: string, currentTaskId?: string }): string {
+    private buildSystemPrompt(opts: { channel?: string, agentName?: string, agentRole?: string, agentId?: string, currentTaskId?: string, model?: string }): string {
         // Build agents list
         let agentsList = '';
         if (this.db) {
@@ -124,6 +125,15 @@ You are actively working on this task. Keep it in focus when responding.`;
         // Build channel info
         let channelInfo = opts.channel ? `User is communicating via: ${opts.channel}` : 'Direct communication';
 
+        // Build model info
+        let modelInfo = '';
+        if (opts.model) {
+            // Make it crystal clear what model is being used
+            modelInfo = `You are powered by the **${opts.model}** model. When asked about which model you're using, you MUST respond with exactly: "${opts.model}". Do NOT say "Claude 3.5 Sonnet" or "GPT-4" or any other model name - only say "${opts.model}".`;
+        } else {
+            modelInfo = 'Model information not available';
+        }
+
         // Build skills info
         const skillsContent = this.loadSkills();
         let skillsInfo = skillsContent || 'No custom skills installed';
@@ -139,6 +149,7 @@ You are actively working on this task. Keep it in focus when responding.`;
             .replace('{workspace}', this.workspace)
             .replace('{currentTaskInfo}', currentTaskInfo || 'No active task assigned')
             .replace('{channelInfo}', channelInfo)
+            .replace('{modelInfo}', modelInfo)
             .replace('{skillsInfo}', skillsInfo);
 
         return prompt;
