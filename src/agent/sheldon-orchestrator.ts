@@ -20,7 +20,7 @@ import { hasToolCalls } from '../providers/index.js';
 import {
     ToolRegistry, ReadFileTool, WriteFileTool, ListDirTool, ExecTool,
     WebSearchTool, WebFetchTool, FindUsagesTool, CodeAnalysisTool,
-    createApplyPatchTool
+    createApplyPatchTool, Context7ResolveTool, Context7DocsTool
 } from '../tools/index.js';
 import { hooks } from '../hooks/index.js';
 import {
@@ -39,7 +39,9 @@ import {
     SHELDON_IDENTITY,
 } from './prompts/sheldon-prompts.js';
 import { join } from 'node:path';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { parseTimeBudget, buildTimeBudget, hasTimeRemaining, msRemaining, type TimeBudget } from './time-budget.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,6 +57,7 @@ export interface PipelineProject {
     projectPath: string;
     detailsJson: Record<string, unknown>;
     retryCount: number;
+    timeBudget: TimeBudget | null;  // null = no time constraint
     phases: Record<PipelinePhase, {
         status: PhaseStatus;
         result: string;
@@ -65,7 +68,7 @@ export interface PipelineProject {
 }
 
 export interface SheldonConfig {
-    provider: LLMProvider;
+    provider?: LLMProvider;
     db: Database;
     model: string;
     workspace: string;
@@ -113,6 +116,7 @@ async function runPhaseWorker(
         braveApiKey?: string;
     },
     onProgress?: (msg: string) => void,
+    phaseTimeoutMs?: number,  // per-phase timeout from TimeBudget (overrides default 10m)
 ): Promise<string> {
     const tools = new ToolRegistry();
     tools.register(new ReadFileTool(workspace, workspace));
@@ -121,6 +125,8 @@ async function runPhaseWorker(
     tools.register(new ExecTool(workspace, 120000, true)); // v3: 2 min timeout (was 60s)
     tools.register(new WebSearchTool(config.braveApiKey));
     tools.register(new WebFetchTool());
+    tools.register(new Context7ResolveTool());  // v3.1: Up-to-date library docs
+    tools.register(new Context7DocsTool());     // v3.1: Up-to-date library docs
     tools.register(new FindUsagesTool(workspace));
     tools.register(new CodeAnalysisTool(workspace));
     tools.register(createApplyPatchTool(workspace));
@@ -133,14 +139,24 @@ async function runPhaseWorker(
     let finalContent = '';
     let iteration = 0;
 
-    // v3: Increased timeout to 10 min per worker (was 5 min)
-    const timeoutMs = 600_000;
-    const deadline = Date.now() + timeoutMs;
+    const timeoutMs = phaseTimeoutMs ?? 600_000;
+    const deadlineValue = Date.now() + timeoutMs;
 
-    while (iteration < config.maxIterations && Date.now() < deadline) {
+    while (iteration < config.maxIterations && Date.now() < deadlineValue) {
         iteration++;
 
-        const response = await provider.chat(
+        // v3.1: Hard deadline enforcement — inject time pressure at 75% elapsed
+        const elapsed = Date.now() - (deadlineValue - timeoutMs);
+        const remaining = deadlineValue - Date.now();
+        if (remaining < timeoutMs * 0.25 && iteration > 1) {
+            // Inject urgency into the conversation
+            messages = [
+                ...messages,
+                { role: 'user', content: `⏰ URGENT: Only ${Math.round(remaining / 60_000)} minutes remaining! Finish ALL remaining files NOW. Write complete code, do not skip any file. If you have unfinished work, PRIORITIZE creating all files over polishing existing ones.` },
+            ];
+        }
+
+        const response = await provider!.chat(
             messages,
             tools.getDefinitions() as any,
             model,
@@ -201,6 +217,297 @@ export class SheldonOrchestrator {
         this.config = config;
     }
 
+    // ── v3.1: SCAFFOLD-FIRST BUILD — deterministic file creation ─────────────
+    //    Creates ALL boilerplate files BEFORE any LLM agent runs.
+    //    This eliminates the #1 class of build failures (missing files).
+
+    private scaffoldProject(projectPath: string, directive: string): void {
+        const fe = join(projectPath, 'frontend');
+        const be = join(projectPath, 'backend');
+        const safeMkdir = (p: string) => { if (!existsSync(p)) mkdirSync(p, { recursive: true }); };
+        const safeWrite = (p: string, content: string) => {
+            safeMkdir(join(p, '..').replace(/\/[^/]*$/, ''));
+            if (!existsSync(p)) writeFileSync(p, content, 'utf-8');
+        };
+
+        // ── Frontend Scaffold ────────────────────────────────────────────────
+        safeMkdir(join(fe, 'src', 'pages'));
+        safeMkdir(join(fe, 'src', 'components'));
+        safeMkdir(join(fe, 'src', 'contexts'));
+        safeMkdir(join(fe, 'src', 'api'));
+
+        safeWrite(join(fe, 'index.html'), `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <title>${directive.slice(0, 40)}</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`);
+
+        safeWrite(join(fe, 'vite.config.ts'), `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 5173 },
+})`);
+
+        safeWrite(join(fe, 'postcss.config.js'), `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}`);
+
+        safeWrite(join(fe, 'tsconfig.json'), `{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}`);
+
+        safeWrite(join(fe, 'package.json'), JSON.stringify({
+            name: directive.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 30) + '-frontend',
+            private: true,
+            version: '1.0.0',
+            type: 'module',
+            scripts: {
+                dev: 'vite',
+                build: 'tsc && vite build',
+                preview: 'vite preview'
+            },
+            dependencies: {
+                'react': '^18.2.0',
+                'react-dom': '^18.2.0',
+                'react-router-dom': '^6.8.1',
+                'axios': '^1.6.2',
+                'lucide-react': '^0.263.1',
+                'react-hot-toast': '^2.4.0'
+            },
+            devDependencies: {
+                '@types/react': '^18.2.0',
+                '@types/react-dom': '^18.2.0',
+                '@vitejs/plugin-react': '^4.2.0',
+                'autoprefixer': '^10.4.14',
+                'postcss': '^8.4.31',
+                'tailwindcss': '^3.3.0',
+                'typescript': '^5.3.2',
+                'vite': '^4.5.0'
+            }
+        }, null, 2));
+
+        safeWrite(join(fe, 'tailwind.config.js'), `/** @type {import('tailwindcss').Config} */
+export default {
+  content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+      colors: {
+        primary: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' }
+      }
+    }
+  },
+  plugins: []
+}`);
+
+        safeWrite(join(fe, 'src', 'index.css'), `@tailwind base;\n@tailwind components;\n@tailwind utilities;`);
+
+        safeWrite(join(fe, '.env'), 'VITE_API_BASE_URL=http://localhost:3000/api');
+
+        // Minimal main.tsx that agents will expand
+        safeWrite(join(fe, 'src', 'main.tsx'), `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import App from './App';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <Toaster position="top-right" />
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+);`);
+
+        safeWrite(join(fe, 'src', 'App.tsx'), `import { Routes, Route } from 'react-router-dom';
+
+export default function App() {
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans">
+      <Routes>
+        <Route path="/" element={<div className="p-8 text-center"><h1 className="text-3xl font-bold">Loading...</h1></div>} />
+      </Routes>
+    </div>
+  );
+}`);
+
+        // ── Backend Scaffold (Pure JS — NO TypeScript) ────────────────────────
+        safeMkdir(join(be, 'src', 'routes'));
+        safeMkdir(join(be, 'src', 'models'));
+        safeMkdir(join(be, 'src', 'middleware'));
+        safeMkdir(join(be, 'src', 'database'));
+        safeMkdir(join(be, 'src', 'utils'));
+        safeMkdir(join(be, 'data'));
+
+        safeWrite(join(be, 'package.json'), JSON.stringify({
+            name: directive.replace(/[^a-z0-9]/gi, '-').toLowerCase().slice(0, 30) + '-backend',
+            version: '1.0.0',
+            scripts: {
+                start: 'node src/server.js',
+                dev: 'node src/server.js'
+            },
+            dependencies: {
+                'express': '^4.18.2',
+                'cors': '^2.8.5',
+                'helmet': '^7.1.0',
+                'dotenv': '^16.3.1',
+                'bcryptjs': '^2.4.3',
+                'jsonwebtoken': '^9.0.2',
+                'sequelize': '^6.35.1',
+                'sqlite3': '^5.1.6',
+                'joi': '^17.11.0',
+                'winston': '^3.11.0',
+                'express-rate-limit': '^7.1.0'
+            }
+        }, null, 2));
+
+        safeWrite(join(be, '.env'), `PORT=3000\nJWT_SECRET=sheldon-jwt-secret-${Date.now()}\nDATABASE_TYPE=sqlite\nDATABASE_FILE=./data/app.sqlite\nNODE_ENV=development\nCORS_ORIGIN=http://localhost:5173`);
+        safeWrite(join(be, '.env.example'), 'PORT=3000\nJWT_SECRET=change-me\nDATABASE_TYPE=sqlite\nDATABASE_FILE=./data/app.sqlite\nNODE_ENV=development\nCORS_ORIGIN=http://localhost:5173');
+    }
+
+    // ── v3.1: POST-BUILD VALIDATION — deterministic, no LLM ─────────────────
+    //    Runs npm install + boot-test after all agents complete, before QA.
+
+    private async runPostBuildValidation(project: PipelineProject): Promise<void> {
+        this.progress(project.id, 'build', '🔍 POST-BUILD VALIDATION: Running npm install + boot test...');
+
+        const fe = join(project.projectPath, 'frontend');
+        const be = join(project.projectPath, 'backend');
+
+        // 1. Ensure scaffold files still exist (agents might have deleted them)
+        const criticalFiles = [
+            [join(fe, 'index.html'), 'Frontend index.html'],
+            [join(fe, 'vite.config.ts'), 'Frontend vite.config.ts'],
+            [join(fe, 'postcss.config.js'), 'Frontend postcss.config.js'],
+            [join(fe, 'package.json'), 'Frontend package.json'],
+            [join(fe, 'src', 'main.tsx'), 'Frontend main.tsx'],
+            [join(fe, 'src', 'index.css'), 'Frontend index.css'],
+            [join(be, 'package.json'), 'Backend package.json'],
+            [join(be, '.env'), 'Backend .env'],
+        ];
+
+        let missingCount = 0;
+        for (const [filePath, label] of criticalFiles) {
+            if (!existsSync(filePath)) {
+                missingCount++;
+                this.progress(project.id, 'build', `⚠️ MISSING: ${label} — re-scaffolding...`);
+            }
+        }
+
+        // Re-scaffold if files are missing
+        if (missingCount > 0) {
+            this.scaffoldProject(project.projectPath, project.directive);
+            this.progress(project.id, 'build', `🔧 Re-scaffolded ${missingCount} missing files`);
+        }
+
+        // 2. Fix common agent mistakes in backend files
+        this.fixCommonAgentMistakes(project.projectPath);
+
+        // 3. npm install frontend
+        try {
+            this.progress(project.id, 'build', '📦 Installing frontend dependencies...');
+            execSync('npm install --legacy-peer-deps 2>&1', { cwd: fe, timeout: 120_000, stdio: 'pipe' });
+            this.progress(project.id, 'build', '✅ Frontend npm install succeeded');
+        } catch (err: any) {
+            this.progress(project.id, 'build', `⚠️ Frontend npm install failed: ${String(err.stderr || err.message).slice(0, 200)}`);
+        }
+
+        // 4. npm install backend
+        try {
+            this.progress(project.id, 'build', '📦 Installing backend dependencies...');
+            execSync('npm install 2>&1', { cwd: be, timeout: 120_000, stdio: 'pipe' });
+            this.progress(project.id, 'build', '✅ Backend npm install succeeded');
+        } catch (err: any) {
+            this.progress(project.id, 'build', `⚠️ Backend npm install failed: ${String(err.stderr || err.message).slice(0, 200)}`);
+        }
+
+        // 5. Boot-test backend (5 second timeout)
+        try {
+            this.progress(project.id, 'build', '🏃 Boot-testing backend server...');
+            const bootResult = execSync(
+                'node -e "const s = require(\\"./src/server.js\\"); setTimeout(() => process.exit(0), 3000)" 2>&1',
+                { cwd: be, timeout: 10_000, stdio: 'pipe' }
+            );
+            this.progress(project.id, 'build', '✅ Backend boot test passed');
+        } catch (err: any) {
+            const errMsg = String(err.stderr || err.stdout || err.message).slice(0, 500);
+            this.progress(project.id, 'build', `⚠️ Backend boot test issue: ${errMsg.slice(0, 200)}`);
+        }
+
+        this.progress(project.id, 'build', '🔍 POST-BUILD VALIDATION COMPLETE');
+    }
+
+    // ── v3.1: Fix common agent mistakes ──────────────────────────────────────
+
+    private fixCommonAgentMistakes(projectPath: string): void {
+        const be = join(projectPath, 'backend');
+
+        // Scan all .js files in backend for common mistakes
+        const scanDir = (dir: string) => {
+            if (!existsSync(dir)) return;
+            const entries = require('node:fs').readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = join(dir, entry.name);
+                if (entry.isDirectory() && entry.name !== 'node_modules') {
+                    scanDir(fullPath);
+                } else if (entry.name.endsWith('.js')) {
+                    try {
+                        let content = readFileSync(fullPath, 'utf-8');
+                        let changed = false;
+
+                        // Fix 1: bcrypt → bcryptjs
+                        if (content.includes("require('bcrypt')") && !content.includes("require('bcryptjs')")) {
+                            content = content.replace(/require\('bcrypt'\)/g, "require('bcryptjs')");
+                            changed = true;
+                        }
+
+                        // Fix 2: import/export in .js files → convert to require/module.exports
+                        if (content.match(/^import .+ from /m) && !content.includes('// ESM-OK')) {
+                            // This is a complex transform — just flag it
+                        }
+
+                        if (changed) writeFileSync(fullPath, content, 'utf-8');
+                    } catch { /* skip unreadable files */ }
+                }
+            }
+        };
+
+        scanDir(join(be, 'src'));
+    }
+
     getProjects(): PipelineProject[] {
         return Array.from(this.activeProjects.values());
     }
@@ -232,8 +539,22 @@ export class SheldonOrchestrator {
     }
 
     /** v3 LAUNCH — Fully autonomous pipeline with self-healing */
-    async launchProject(directive: string): Promise<string> {
-        const projectId = `sheldon_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+    async launchProject(directive: string, timeBudgetMs?: number): Promise<string> {
+        // Build a human-readable project name from the directive (first 4 meaningful words)
+        const slug = directive
+            .replace(/[^a-zA-Z0-9 ]/g, '')
+            .trim()
+            .split(/\s+/)
+            .slice(0, 4)
+            .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+            .join('');
+
+        // Format: YYYYMMDD_HHMM in local time
+        const now = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+        const projectId = `sheldon_${slug}_${dateStr}`;
         const projectPath = join(this.config.workspace, '.sheldon', projectId);
 
         if (!existsSync(projectPath)) {
@@ -246,6 +567,11 @@ export class SheldonOrchestrator {
             core_goal: directive,
         });
 
+        // ── Time Budget Resolution ────────────────────────────────────────────
+        // Try: explicit ms param → parse from directive → no constraint
+        const rawMs = timeBudgetMs ?? parseTimeBudget(directive);
+        const timeBudget = rawMs ? buildTimeBudget(rawMs) : null;
+
         const project: PipelineProject = {
             id: projectId,
             directive,
@@ -254,6 +580,7 @@ export class SheldonOrchestrator {
             qualityScore: 0,
             projectPath,
             retryCount: 0,
+            timeBudget,
             detailsJson: { dbProjectId, directive },
             phases: {
                 research: { status: 'pending', result: '', startedAt: null, completedAt: null, duration: 0 },
@@ -266,6 +593,22 @@ export class SheldonOrchestrator {
 
         this.activeProjects.set(projectId, project);
         this.broadcastUpdate(project);
+
+        // Announce time budget to user
+        if (timeBudget) {
+            const deadline = new Date(timeBudget.deadline);
+            const timeStr = deadline.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            this.progress(projectId, 'research',
+                `⏱️ TIME-BUDGET MODE: ${timeBudget.label} | Deadline: ${timeStr} | ` +
+                `Concurrency: ${timeBudget.concurrency} agents | Mode: ${timeBudget.concurrency >= 12 ? 'SPRINT 🚀' : timeBudget.concurrency >= 8 ? 'FAST ⚡' : 'THOROUGH 🔬'}`
+            );
+            this.progress(projectId, 'research',
+                `📅 Phase budget → Research: ${Math.round(timeBudget.phases.research / 60000)}m | ` +
+                `Build: ${Math.round(timeBudget.phases.build / 60000)}m | ` +
+                `QA: ${Math.round(timeBudget.phases.qa / 60000)}m | ` +
+                `Deploy: ${Math.round(timeBudget.phases.deploy / 60000)}m`
+            );
+        }
 
         this.executePipeline(project).catch(err => {
             console.error(`[Sheldon v3] Pipeline fatal error for ${projectId}:`, err);
@@ -313,6 +656,9 @@ export class SheldonOrchestrator {
             await this.executePhase(project, 'build');
             if (project.status !== 'active') return;
 
+            // Phase 3.5: POST-BUILD VALIDATION (deterministic, no LLM)
+            await this.runPostBuildValidation(project);
+
             // Phase 4: QA (verification)
             await this.executePhase(project, 'qa');
             if (project.status !== 'active') return;
@@ -346,6 +692,12 @@ export class SheldonOrchestrator {
     }
 
     private async executePhase(project: PipelineProject, phase: PipelinePhase): Promise<void> {
+        if (!this.config.provider) {
+            this.progress(project.id, phase, '🛑 LLM provider not configured. Cannot proceed with automated work.');
+            project.status = 'failed';
+            return;
+        }
+
         if (project.status === 'aborted') {
             this.progress(project.id, phase, '🛑 Pipeline aborted by CEO');
             return;
@@ -452,11 +804,13 @@ export class SheldonOrchestrator {
     // ── Phase Implementations ────────────────────────────────────────────────
 
     private async runResearchPhase(project: PipelineProject): Promise<string> {
-        this.progress(project.id, 'research', '🔬 Deploying 4 parallel research agents...');
+        const tb = project.timeBudget;
+        const researchBudgetMs = tb?.phases.research ?? 5 * 60_000;
+        this.progress(project.id, 'research', `🔬 Deploying 4 parallel research agents (budget: ${Math.round(researchBudgetMs / 60000)}m)...`);
 
         const semaphore = new Semaphore(4);
         const workerConfig = {
-            maxIterations: this.config.maxWorkerIterations,
+            maxIterations: tb ? Math.min(tb.workerIterations, 5) : this.config.maxWorkerIterations,
             maxTokens: this.config.maxTokens,
             temperature: this.config.temperature,
             braveApiKey: this.config.braveApiKey,
@@ -476,11 +830,12 @@ export class SheldonOrchestrator {
                     task.id,
                     getResearchPrompt(project.directive),
                     task.focus,
-                    this.config.provider,
+                    this.config.provider!,
                     this.config.model,
                     project.projectPath,
                     workerConfig,
                     (msg) => this.progress(project.id, 'research', msg),
+                    tb ? researchBudgetMs : undefined,
                 );
             } finally {
                 semaphore.release();
@@ -499,10 +854,12 @@ export class SheldonOrchestrator {
             'research-synthesis',
             SHELDON_IDENTITY,
             `Synthesize these research reports into a single comprehensive JSON report:\n\n${outputs.join('\n\n')}\n\nReturn a JSON object with: executive_summary, pain_points (array of 5+), target_user, market_size, competitors (array with name/strengths/weaknesses/pricing), reddit_insights (array), opportunity_gap, recommended_features (array of 8+), monetization_ideas, risk_factors, confidence_score (1-10), tech_stack_recommendation`,
-            this.config.provider,
+            this.config.provider!,
             this.config.model,
             project.projectPath,
             { ...workerConfig, maxIterations: 3 },
+            undefined,
+            tb ? Math.min(tb.phases.research / 2, 120_000) : undefined,
         );
 
         return synthesisResult;
@@ -517,7 +874,7 @@ export class SheldonOrchestrator {
             'validation-lead',
             getValidationPrompt(project.directive, researchData),
             `Validate and score this project idea based on the research data provided. Be thorough and honest. Return JSON with verdict, scores, mvp_scope, and tech_stack_recommendation.`,
-            this.config.provider,
+            this.config.provider!,
             this.config.model,
             project.projectPath,
             {
@@ -530,52 +887,107 @@ export class SheldonOrchestrator {
         );
     }
 
-    /** v3: EXPANDED BUILD PHASE — 6-8 parallel agents */
+    /** v3.1: EXPANDED BUILD PHASE — scaffold-first + scales with TimeBudget */
     private async runBuildPhase(project: PipelineProject): Promise<string> {
-        const agentCount = 6;
-        this.progress(project.id, 'build', `⚒️ Deploying ${agentCount} parallel build agents (Frontend, Backend, DB, UI/UX, DevSecOps, Integration)...`);
+        const tb = project.timeBudget;
+        const concurrency = tb?.concurrency ?? this.config.maxAgentConcurrency ?? 8;
+        const buildBudgetMs = tb?.phases.build ?? 20 * 60_000;
+        const workerTimeout = tb?.workerTimeoutMs ?? 600_000;
+
+        // v3.1: SCAFFOLD FIRST — create all boilerplate before agents run
+        this.progress(project.id, 'build', '🏗️  SCAFFOLD: Pre-creating all project boilerplate files...');
+        this.scaffoldProject(project.projectPath, project.directive);
+        this.progress(project.id, 'build', '✅ Scaffold complete — agents will now extend these files');
+
+        this.progress(project.id, 'build',
+            `⚒️ Deploying parallel build agents (budget: ${Math.round(buildBudgetMs / 60000)}m | ${concurrency} concurrent | mode: ${tb ? (concurrency >= 12 ? 'SPRINT 🚀' : 'FAST ⚡') : 'STANDARD'})...`
+        );
 
         const validationData = project.phases.validate.result || '{}';
-        const maxConcurrency = this.config.maxAgentConcurrency || 8;
-        const semaphore = new Semaphore(maxConcurrency);
+        const semaphore = new Semaphore(concurrency);
         const workerConfig = {
-            maxIterations: Math.min(this.config.maxWorkerIterations, 20), // v3: increased from 15
+            maxIterations: tb?.workerIterations ?? Math.min(this.config.maxWorkerIterations, 20),
             maxTokens: this.config.maxTokens,
             temperature: this.config.temperature,
             braveApiKey: this.config.braveApiKey,
         };
 
-        // Create subdirectories
-        const dirs = ['frontend', 'backend', 'database'];
-        for (const dir of dirs) {
-            const dirPath = join(project.projectPath, dir);
-            if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true });
-        }
-
-        // v3: 6 specialized build agents (was 3 generic ones)
+        // v3.1: 12 specialized build agents with EXPLICIT file ownership
         const buildTasks = [
+            // --- FRONTEND SWARM (4) — EXPLICIT FILE OWNERSHIP ---
             {
-                id: 'agent-frontend-engineer',
+                id: 'agent-frontend-layout',
                 prompt: getBuilderFrontendPrompt(project.directive, validationData, join(project.projectPath, 'frontend')),
-                task: 'Build the COMPLETE production-ready frontend. Create ALL files from the mandatory checklist. Use React 18 + Vite 4 + TailwindCSS. Every page must render with real UI. Verify all files exist before reporting done.',
+                task: `Build the CORE FRONTEND ARCHITECTURE. The scaffold already created package.json, vite.config.ts, index.html, postcss.config.js, tailwind.config.js, and a minimal main.tsx/App.tsx. Your job is to EXTEND these files (do NOT delete or overwrite package.json, vite.config.ts, index.html, postcss.config.js). Specifically:\n- REPLACE src/App.tsx with FULL routing: LoginPage, RegisterPage, HomePage, DashboardPage, SettingsPage + domain pages\n- CREATE src/contexts/AuthContext.tsx with full user/token/login/logout state\n- CREATE src/components/ProtectedRoute.tsx with JWT guard\n- CREATE src/api/index.ts with Axios instance + JWT interceptor\n- UPDATE main.tsx to wrap App in AuthProvider\n\nDO NOT touch files in src/components/ or src/pages/ — other agents handle those.`,
                 path: join(project.projectPath, 'frontend'),
             },
             {
-                id: 'agent-backend-engineer',
+                id: 'agent-frontend-components',
+                prompt: getBuilderFrontendPrompt(project.directive, validationData, join(project.projectPath, 'frontend')),
+                task: `Build the COMPONENT LIBRARY. You own ONLY src/components/. Create ALL of these files:\n- src/components/Header.tsx — Nav bar with logo, links, user info, logout button. Use lucide-react icons.\n- src/components/Sidebar.tsx — Side nav with menu items, active state, collapse toggle. Use Link from react-router-dom.\n- src/components/Button.tsx — Reusable button with variants (primary, secondary, danger, ghost)\n- src/components/Card.tsx — Glass-morphism card (bg-white/70 backdrop-blur-md)\n- src/components/Input.tsx — Form input with label, error state, icon support\n- src/components/Modal.tsx — Overlay modal with close button and animation\n\nEvery component MUST use named exports (export const Header = ...), NOT default exports.\nDO NOT touch any files outside src/components/.`,
+                path: join(project.projectPath, 'frontend'),
+            },
+            {
+                id: 'agent-frontend-pages',
+                prompt: getBuilderFrontendPrompt(project.directive, validationData, join(project.projectPath, 'frontend')),
+                task: `Build the FEATURE PAGES. You own ONLY src/pages/. Create ALL of these files with COMPLETE, PREMIUM UI:\n- src/pages/LoginPage.tsx — Email/password form with validation, error handling, loading spinner, Link to register. Use lucide-react icons (Lock, Mail, Eye, EyeOff).\n- src/pages/RegisterPage.tsx — Full form: firstName, lastName, email, password. Gradient background.\n- src/pages/HomePage.tsx — Marketing landing page with hero section, feature grid (3-6 features), CTA button, gradient background.\n- src/pages/DashboardPage.tsx — Stats cards (3 metrics), data table or list, empty state with CTA. Import Header and Sidebar.\n- src/pages/SettingsPage.tsx — Profile editing form, danger zone section. Import Header and Sidebar.\n- 3-5 additional domain-specific pages based on the directive.\n\nEvery page MUST use named exports (export const LoginPage = ...).\nEvery page MUST import from '../components/' and '../contexts/AuthContext'.\nDO NOT touch files outside src/pages/.`,
+                path: join(project.projectPath, 'frontend'),
+            },
+            {
+                id: 'agent-frontend-styling',
+                prompt: getBuilderFrontendPrompt(project.directive, validationData, join(project.projectPath, 'frontend')),
+                task: `Build the GLOBAL STYLING. You own ONLY: tailwind.config.js and src/index.css.\n- REPLACE tailwind.config.js with expanded theme: custom primary/secondary/accent color palettes, extended fontFamily (Inter), custom animations (fadeIn, slideUp, float), custom keyframes.\n- REPLACE src/index.css with: @tailwind directives + CSS custom properties for premium glass/gradient utilities + smooth scrolling + custom scrollbar styles.\n\nDO NOT modify or create any other files.`,
+                path: join(project.projectPath, 'frontend'),
+            },
+            // --- BACKEND SWARM (4) — ALL .js FILES, NO .ts ---
+            {
+                id: 'agent-backend-core',
                 prompt: getBuilderBackendPrompt(project.directive, validationData, join(project.projectPath, 'backend')),
-                task: 'Build the COMPLETE production-ready backend API. Use Express 4.18.2 + CommonJS ONLY. Create ALL routes with REAL logic (not stubs). Run npm install to verify. Verify all files exist before reporting done.',
+                task: `Build the BACKEND CORE. The scaffold already created package.json and .env. Your job is to EXTEND (do NOT delete package.json or .env). Specifically:\n- CREATE src/server.js — Express app: require dotenv, cors, helmet, rate-limit, routes, error handler, db init, app.listen. Port from process.env.PORT.\n- CREATE src/middleware/errorHandler.js — Global error handler (4-arg middleware)\n- CREATE src/middleware/rateLimiter.js — express-rate-limit config\n- CREATE src/middleware/validate.js — Joi validation middleware factory\n- CREATE src/utils/logger.js — Winston logger with console transport\n\nIMPORTANT: ALL files MUST use .js extension. Use require() and module.exports. NO import/export. NO .ts files.\nDO NOT touch routes/, models/, or database/ — other agents handle those.`,
                 path: join(project.projectPath, 'backend'),
             },
             {
-                id: 'agent-database-architect',
-                prompt: getBuilderDatabasePrompt(project.directive, validationData, join(project.projectPath, 'backend')),
-                task: 'Design and implement the COMPLETE database layer. Create ALL models, the database init module, seed data with REALISTIC content, and TypeScript types. Use Sequelize 6 + CommonJS.',
+                id: 'agent-backend-auth',
+                prompt: getBuilderBackendPrompt(project.directive, validationData, join(project.projectPath, 'backend')),
+                task: `Build the AUTH SYSTEM. You own ONLY: src/middleware/auth.js and src/routes/auth.js.\n- CREATE src/middleware/auth.js — JWT verification: extract token from Authorization header, verify with jsonwebtoken, attach user to req.user. Use LAZY require for models (const { User } = require('../models') inside the function body, NOT at top level).\n- CREATE src/routes/auth.js — POST /register (validate with Joi, hash password with bcryptjs, create user, return JWT) + POST /login (find user by email, compare password with bcryptjs, return JWT). Use LAZY require for models inside each handler.\n\nCRITICAL: Use require('bcryptjs') NOT require('bcrypt'). The package is bcryptjs.\nCRITICAL: ALL files MUST be .js. Use require() and module.exports.\nDO NOT touch any other files.`,
                 path: join(project.projectPath, 'backend'),
             },
+            {
+                id: 'agent-backend-routes',
+                prompt: getBuilderBackendPrompt(project.directive, validationData, join(project.projectPath, 'backend')),
+                task: `Build the API ROUTES. You own ONLY: src/routes/ (except auth.js — another agent handles that).\n- CREATE src/routes/index.js — Barrel file that exports all route modules\n- CREATE 2-4 domain route files (e.g., src/routes/tasks.js, src/routes/documents.js) with full CRUD: GET /, GET /:id, POST /, PUT /:id, DELETE /:id\n- Each route MUST query the real database via Sequelize models (use lazy require inside handlers)\n- Each route MUST have try/catch error handling\n\nCRITICAL: ALL files MUST be .js. Use require() and module.exports.`,
+                path: join(project.projectPath, 'backend'),
+            },
+            {
+                id: 'agent-backend-services',
+                prompt: getBuilderBackendPrompt(project.directive, validationData, join(project.projectPath, 'backend')),
+                task: `Build the BUSINESS LOGIC. You own: src/utils/helpers.js and any service files in src/services/.\n- CREATE src/utils/helpers.js — Common utilities (generateId, formatDate, sanitizeInput, etc.)\n- If the directive requires external APIs (e.g., Stripe, OpenAI), create src/services/[api-name].js with REAL SDK integration using credentials from process.env\n- If no external APIs needed, create src/services/analytics.js with simple internal analytics logic\n\nCRITICAL: ALL files MUST be .js. Use require() and module.exports.`,
+                path: join(project.projectPath, 'backend'),
+            },
+            // --- DATABASE SWARM (2) --- ALL .js FILES ---
+            {
+                id: 'agent-database-schema',
+                prompt: getBuilderDatabasePrompt(project.directive, validationData, join(project.projectPath, 'backend')),
+                task: `Design the DATABASE SCHEMA. You own: src/database/index.js and src/models/*.js.\n- CREATE src/database/index.js — Sequelize init with SQLite, createConnection() function that calls all model init functions and sets up associations. Export { sequelize, createConnection }.\n- CREATE src/models/User.js — User model factory: module.exports = function(sequelize, DataTypes) { ... return User; }; Also export as: module.exports.initUserModel = module.exports;\n- CREATE src/models/Profile.js — Profile model with userId foreign key. Same factory pattern.\n- CREATE 2-3 domain-specific models based on the directive.\n- CREATE src/models/index.js — Barrel that requires all models: module.exports = { User: {}, Profile: {}, ... }; (empty initially, filled by createConnection())\n\nCRITICAL: ALL files .js. Use require() and module.exports.\nCRITICAL: Use require('bcryptjs') in User model hooks, NOT require('bcrypt').\nCRITICAL: Factory pattern: module.exports = function(sequelize, DataTypes) { const Model = sequelize.define(...); return Model; };`,
+                path: join(project.projectPath, 'backend'),
+            },
+            {
+                id: 'agent-database-seeds',
+                prompt: getBuilderDatabasePrompt(project.directive, validationData, join(project.projectPath, 'backend')),
+                task: `Create SEED DATA. You own ONLY: src/database/seed.js.\n- CREATE src/database/seed.js — Script that imports createConnection from ./index.js, calls it, then creates realistic sample data: 2 users (admin + regular, hashed passwords with bcryptjs), 5-10 domain records with REALISTIC names/data.\n- Use real-sounding data (e.g., "Sarah Chen", "sarah@legalfirm.com"), NOT "test user" or "foo@bar.com"\n\nCRITICAL: .js file. Use require('bcryptjs').`,
+                path: join(project.projectPath, 'backend'),
+            },
+            // --- SUPPORT SWARM (2) ---
             {
                 id: 'agent-devsecops',
                 prompt: getDevSecOpsPrompt(project.directive, project.projectPath),
-                task: 'Harden security, create Dockerfile, docker-compose.yml, .gitignore, .env.example, and comprehensive README.md. Verify no secrets are in source code.',
+                task: 'Harden SECURITY & DOCKER: Create Dockerfile, docker-compose.yml, .gitignore, and .env.example. Verify no secrets are in code.',
+                path: project.projectPath,
+            },
+            {
+                id: 'agent-tech-writer',
+                prompt: getDevSecOpsPrompt(project.directive, project.projectPath),
+                task: 'Build DOCUMENTATION: Create a comprehensive README.md (100+ lines) with setup guides, API reference, tech stack overview, and a user manual.',
                 path: project.projectPath,
             },
         ];
@@ -587,11 +999,12 @@ export class SheldonOrchestrator {
                     task.id,
                     task.prompt,
                     task.task,
-                    this.config.provider,
+                    this.config.provider!,
                     this.config.model,
                     task.path,
                     workerConfig,
                     (msg) => this.progress(project.id, 'build', msg),
+                    workerTimeout,
                 );
             } finally {
                 semaphore.release();
@@ -600,35 +1013,42 @@ export class SheldonOrchestrator {
 
         const results = await Promise.allSettled(workerPromises);
 
-        // v3: After core agents finish, run sequential polish agents
-        this.progress(project.id, 'build', '✨ Running UI/UX Polish Agent...');
-        await runPhaseWorker(
-            'agent-ui-polish',
-            getUIPolishPrompt(project.directive, project.projectPath),
-            'Review and enhance ALL frontend components with premium animations, micro-interactions, glassmorphism, and responsive design. Fix any missing hover states or empty state UIs.',
-            this.config.provider,
-            this.config.model,
-            join(project.projectPath, 'frontend'),
-            workerConfig,
-            (msg) => this.progress(project.id, 'build', msg),
-        );
+        // v3: After core agents finish, run sequential polish agents (time permitting)
+        const hasTimeForPolish = !tb || hasTimeRemaining(tb.deadline, tb.phases.qa + tb.phases.deploy + 60_000);
+        if (hasTimeForPolish) {
+            this.progress(project.id, 'build', '✨ Running UI/UX Polish Agent...');
+            await runPhaseWorker(
+                'agent-ui-polish',
+                getUIPolishPrompt(project.directive, project.projectPath),
+                'Review and enhance ALL frontend components with premium animations, micro-interactions, glassmorphism, and responsive design. Fix any missing hover states or empty state UIs.',
+                this.config.provider!,
+                this.config.model,
+                join(project.projectPath, 'frontend'),
+                workerConfig,
+                (msg) => this.progress(project.id, 'build', msg),
+                workerTimeout,
+            );
+        } else {
+            this.progress(project.id, 'build', '⚡ Skipping UI polish — budget is tight, focusing on core functionality...');
+        }
 
         this.progress(project.id, 'build', '🔗 Running Integration Wirer Agent...');
         await runPhaseWorker(
             'agent-integration',
             getIntegrationPrompt(project.directive, project.projectPath),
             'Verify and fix the connection between frontend and backend. Check port configs, CORS settings, API base URLs, and auth flow. Fix any mismatches.',
-            this.config.provider,
+            this.config.provider!,
             this.config.model,
             project.projectPath,
             { ...workerConfig, maxIterations: 10 },
             (msg) => this.progress(project.id, 'build', msg),
+            workerTimeout,
         );
 
         const succeeded = results.filter(r => r.status === 'fulfilled').length;
         const outputs = results.map((r, i) => {
             const status = r.status === 'fulfilled' ? '✅' : '❌';
-            const content = r.status === 'fulfilled' ? r.value : String(r.reason);
+            const content = r.status === 'fulfilled' ? (r as any).value : String((r as any).reason);
             return `### ${status} ${buildTasks[i].id}\n${content}`;
         });
 
@@ -654,7 +1074,7 @@ export class SheldonOrchestrator {
             'agent-qa-tester',
             getQAPrompt(project.directive, project.projectPath),
             `Execute the FULL QA protocol:\n1. File inventory — verify ALL expected files exist\n2. Anti-stub check — every file > 100 bytes, no TODOs\n3. Dependency check — no "latest", correct module system\n4. Backend: Run \`cd ${project.projectPath}/backend && npm install\` then \`timeout 10 npx ts-node --transpile-only src/server.ts || true\`\n5. Frontend: Run \`cd ${project.projectPath}/frontend && npm install\`\n6. If issues found, FIX THEM immediately, then re-test\n\nReturn JSON QA report with results.`,
-            this.config.provider,
+            this.config.provider!,
             this.config.model,
             project.projectPath,
             {
@@ -675,7 +1095,7 @@ export class SheldonOrchestrator {
             'agent-debugger',
             getDebuggerPrompt(project.directive, project.projectPath, errorLog),
             `An error was detected during QA. Diagnose the root cause from the error log, fix the affected files, and re-verify by running the build commands. You have 5 fix attempts. Use them wisely.`,
-            this.config.provider,
+            this.config.provider!,
             this.config.model,
             project.projectPath,
             {
@@ -697,7 +1117,7 @@ export class SheldonOrchestrator {
             'agent-deploy-packager',
             getDeployPrompt(project.directive, project.projectPath, qaData),
             `Create deployment package: comprehensive README.md (100+ lines), start scripts (start.sh + start.bat), and verify the project can start. Run final npm install && npm run dev test.`,
-            this.config.provider,
+            this.config.provider!,
             this.config.model,
             project.projectPath,
             {
@@ -770,7 +1190,7 @@ export class SheldonOrchestrator {
 
     private async evaluatePhaseResult(phase: string, result: string): Promise<{ success: boolean; quality_score: number; proceed: boolean; notes: string }> {
         try {
-            const evalResult = await this.config.provider.chat(
+            const evalResult = await this.config.provider!.chat(
                 [
                     { role: 'system', content: getOrchestratorPrompt(phase, result.slice(0, 5000)) },
                     { role: 'user', content: 'Evaluate the phase results above.' },

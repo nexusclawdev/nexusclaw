@@ -111,7 +111,7 @@ export async function generateChatReply(
     agent: Agent,
     ceoMessage: string,
     db: Database,
-    provider: LLMProvider
+    provider?: LLMProvider
 ): Promise<string> {
     const msg = ceoMessage.trim();
     const lang = detectLang(msg);
@@ -131,6 +131,15 @@ export async function generateChatReply(
     }
 
     // ---- Offline check (Fast path) ----
+    if (!provider) {
+        return pickL(l(
+            [`[자동응답] ${name}은(는) 현재 오프라인입니다. (LLM이 설정되지 않음)`],
+            [`[Auto-reply] ${name} is currently offline. (LLM not configured)`],
+            [`[自動応答] ${name}は現在オフラインです。(LLM未設定)`],
+            [`[自动回复] ${name}目前离线。(LLM未配置)`],
+        ), lang);
+    }
+
     if (agent.status === "offline") {
         return pickL(l(
             [`[자동응답] ${name}은(는) 현재 오프라인입니다.`],
@@ -163,13 +172,13 @@ Be concise (1-3 sentences). Do not use placeholders.
 Intents detected in user message: ${Object.entries(intent).filter(([_, v]) => v).map(([k]) => k).join(", ") || "neutral"}
 `.trim();
 
-        const response = await provider.chat(
+        const response = await provider!.chat(
             [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: msg }
             ],
             [],
-            agent.api_model || provider.getDefaultModel(),
+            agent.api_model || provider!.getDefaultModel(),
             512,
             0.7
         );

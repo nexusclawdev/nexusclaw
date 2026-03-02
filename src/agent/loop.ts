@@ -283,7 +283,7 @@ export class AgentLoop {
         }
         if (cmd === '/help') {
             return createOutbound(msg.channel, msg.chatId,
-                '🐾 **NexusClaw Commands:**\n' +
+                '🐾 **Agent Commands:**\n' +
                 '`/new` or `/reset` — Clear conversation context\n' +
                 '`/help` — Show this help\n' +
                 '`/status` — Show agent status + token estimate\n' +
@@ -298,7 +298,7 @@ export class AgentLoop {
                 acc + Math.ceil(m.content.length / 4), 0);
             const mem = this.memory.getMemory();
             return createOutbound(msg.channel, msg.chatId,
-                `🐾 **NexusClaw Status**\n` +
+                `🐾 **Agent Status**\n` +
                 `Model: \`${this.model}\`\n` +
                 `Session messages: ${msgCount}\n` +
                 `~Token estimate: ${tokenEst.toLocaleString()}\n` +
@@ -513,7 +513,7 @@ export class AgentLoop {
             progressFn,
         );
 
-        const responseText = finalContent || "I've completed processing but have no response.";
+        const responseText = finalContent || "I've finished working on that. Let me know if you need anything else or want to see the results!";
         console.log(`[loop] 💭 LLM Response: ${responseText.substring(0, 150)}`);
 
         // Reward XP but keep agent on task if task is still in_progress

@@ -3,6 +3,7 @@ export { ToolRegistry } from './registry.js';
 export { ExecTool } from './shell.js';
 export { ReadFileTool, WriteFileTool, EditFileTool, ListDirTool } from './filesystem.js';
 export { WebSearchTool, WebFetchTool } from './web.js';
+export { Context7ResolveTool, Context7DocsTool } from './context7.js';
 export { MessageTool } from './message.js';
 export { BrowseTool } from './browser.js';
 export { SpawnTool } from './spawn.js';

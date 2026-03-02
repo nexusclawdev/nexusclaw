@@ -35,7 +35,7 @@ import type { AgentLoop } from '../agent/loop.js';
 import { randomBytes, createHash } from 'node:crypto';
 import { hooks } from '../hooks/index.js';
 import { generateChatReply } from './modules/agent-logic.js';
-import { createProvider } from '../providers/index.js';
+import { createProvider, type LLMProvider } from '../providers/index.js';
 
 /**
  * Creates and configures the Fastify REST API and WebSocket server for NexusClaw.
@@ -56,7 +56,12 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
         bodyLimit: 1_048_576, // 1MB max request body
     });
 
-    const llmProvider = createProvider(config);
+    let llmProvider: LLMProvider | undefined;
+    try {
+        llmProvider = createProvider(config);
+    } catch (err) {
+        console.warn(`[server] ⚠️ AI Agent: offline (LLM provider not configured or invalid)`);
+    }
 
     // ── In-memory Rate Limiter (anti-brute-force, anti-scrape) ───────────────
     const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -2047,13 +2052,13 @@ export async function createServer(db: Database, bus: MessageBus, config: Config
     });
 
     // POST /api/leader/launch — launch a new project pipeline
-    app.post<{ Body: { directive: string } }>('/api/leader/launch', async (req, reply) => {
-        const { directive } = req.body;
+    app.post<{ Body: { directive: string; timeBudgetMs?: number } }>('/api/leader/launch', async (req, reply) => {
+        const { directive, timeBudgetMs } = req.body;
         if (!directive || typeof directive !== 'string' || directive.trim().length < 3) {
             return reply.status(400).send({ error: 'Directive must be at least 3 characters' });
         }
 
-        const projectId = await sheldon.launchProject(directive.trim());
+        const projectId = await sheldon.launchProject(directive.trim(), timeBudgetMs);
 
         broadcast('sheldon_project_launched', { projectId, directive });
 
