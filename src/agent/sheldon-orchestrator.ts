@@ -140,9 +140,24 @@ async function runPhaseWorker(
     let iteration = 0;
 
     const timeoutMs = phaseTimeoutMs ?? 600_000;
-    const deadlineValue = Date.now() + timeoutMs;
+    let deadlineValue = Date.now() + timeoutMs;
+    let overtimeUsed = false;
 
-    while (iteration < config.maxIterations && Date.now() < deadlineValue) {
+    while (iteration < config.maxIterations) {
+        if (Date.now() >= deadlineValue) {
+            if (!overtimeUsed) {
+                // v3.1: Grant 2-minute overtime buffer in extreme cases
+                overtimeUsed = true;
+                deadlineValue += 120_000; // +2 mins
+                messages = [
+                    ...messages,
+                    { role: 'user', content: `🚨 SYSTEM OVERRIDE: TIME EXPIRED! You have been granted a FINAL 2-MINUTE OVERTIME BUFFER to finish your current files. DO NOT START NEW FEATURES. Just wrap up what you are currently writing. If you fail to finish in 2 minutes, you will be forcefully terminated.` }
+                ];
+            } else {
+                break; // Force exit after overtime expires
+            }
+        }
+
         iteration++;
 
         // v3.1: Hard deadline enforcement — inject time pressure at 75% elapsed
