@@ -13,6 +13,7 @@
 
 import type { Database } from '../db/database.js';
 import type { ToolRegistry } from '../tools/registry.js';
+import { ClaudeAgentProvider } from '../providers/claude-agent.js';
 
 export interface AgentSkillProfile {
     agentId: string;
@@ -254,5 +255,24 @@ export class FusionEngine {
         }
 
         return suggestions.sort((a, b) => b.confidence - a.confidence);
+    }
+
+    /** Run an autonomous agentic task using the Claude Agent SDK */
+    async runAgenticTask(agentId: string, prompt: string): Promise<string> {
+        const profile = this.getProfile(agentId);
+        const tools = this.getEnhancedTools(agentId);
+
+        // Use ClaudeAgentProvider if available
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) throw new Error('ANTHROPIC_API_KEY is required for agentic tasks');
+
+        const provider = new ClaudeAgentProvider(apiKey);
+
+        console.log(`[FusionEngine] Launching Agentic Task for ${profile.agentName} (${agentId})`);
+
+        return await provider.runAgenticTask(prompt, {
+            allowedTools: tools,
+            agent: profile.agentName,
+        });
     }
 }

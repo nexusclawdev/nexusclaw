@@ -654,12 +654,6 @@ export class AgentLoop {
         msg: InboundMessage,
         onProgress: (text: string) => Promise<void>,
     ): Promise<{ content: string | null; toolsUsed: string[] }> {
-        let currentMessages = [...messages];
-        let iteration = 0;
-        let finalContent: string | null = null;
-        const toolsUsed: string[] = [];
-        const taskId = msg.metadata.taskId as string | undefined;
-
         // Start timeline recording
         const activeAgentId = (msg.metadata as any).routedAgentId || this.agentId;
         const tlId = this.timeline.startTimeline(
@@ -667,7 +661,73 @@ export class AgentLoop {
             activeAgentId,
             this.model,
         );
-        this.timeline.recordSnapshot(currentMessages);
+        this.timeline.recordSnapshot(messages);
+
+        const toolsUsed: string[] = [];
+        let finalContent: string | null = null;
+        const taskId = msg.metadata.taskId as string | undefined;
+
+        // ── Claude Agent SDK path (Extreme Intelligence) ─────────────────────
+        if ('runAgenticTask' in this.provider && typeof (this.provider as any).runAgenticTask === 'function') {
+            try {
+                // Build a rich context-aware prompt for the SDK
+                let richPrompt = msg.content;
+                if (messages.length > 1) {
+                    const history = messages
+                        .filter(m => m.role !== 'system')
+                        .slice(-10)
+                        .map(m => `[${m.role}]: ${m.content?.slice(0, 500)}`)
+                        .join('\n');
+
+                    richPrompt = `MISSION CONTEXT:\n${history}\n\nCURRENT INSTRUCTION:\n${msg.content}`;
+                }
+
+                finalContent = await (this.provider as any).runAgenticTask(
+                    richPrompt,
+                    {
+                        model: this.model,
+                        agent: activeAgentId,
+                        cwd: this.workspace,
+                        env: {
+                            ...process.env,
+                            BRAVE_API_KEY: this.config.providers.brave?.apiKey,
+                        }
+                    },
+                    async (progress: string) => {
+                        await onProgress(progress);
+                    },
+                    (event: any) => {
+                        // Record SDK events in timeline
+                        if (event.type === 'tool_progress') {
+                            this.timeline.recordToolCall(event.tool_name, { id: event.tool_use_id });
+                            toolsUsed.push(event.tool_name);
+                            if (taskId) this.db.addTaskLog(taskId, 'tool', `🔧 SDK Tool: ${event.tool_name}`);
+                        } else if (event.type === 'assistant') {
+                            const text = event.message.content.find((c: any) => c.type === 'text')?.text;
+                            if (text) this.timeline.recordLLMResponse(text, false, []);
+                        }
+                    }
+                );
+
+                // Record completion
+                this.timeline.recordLLMResponse(finalContent!, false, []);
+                this.timeline.completeTimeline();
+
+                if (taskId && finalContent) {
+                    this.db.addTaskLog(taskId, 'agent', `✅ SDK Final: ${finalContent.slice(0, 500)}`);
+                    this.db.updateTask(taskId, { status: 'done', completed_at: Date.now() });
+                }
+
+                return { content: finalContent, toolsUsed };
+            } catch (error) {
+                this.timeline.completeTimeline();
+                throw error;
+            }
+        }
+
+        // ── Standard Nexus Loop (Fallback / Other providers) ──────────────────
+        let currentMessages = [...messages];
+        let iteration = 0;
 
         try {
             while (iteration < this.maxIterations) {
@@ -720,132 +780,132 @@ export class AgentLoop {
                 // Record LLM call + response on the timeline
                 this.timeline.recordLLMCall(this.model, currentMessages.length, this.tools.size);
 
-            if (hasToolCalls(response)) {
-                // Record LLM response with tool call info
-                this.timeline.recordLLMResponse(
-                    response.content,
-                    true,
-                    response.toolCalls.map(tc => tc.name),
-                );
-                // Stream progress
-                const cleaned = this.stripThink(response.content);
-                if (cleaned) await onProgress(cleaned);
-                await onProgress(this.toolHint(response));
-
-                // Add assistant message with tool calls
-                const toolCallDicts = response.toolCalls.map(tc => ({
-                    id: tc.id,
-                    type: 'function' as const,
-                    function: {
-                        name: tc.name,
-                        arguments: JSON.stringify(tc.arguments),
-                    },
-                }));
-
-                currentMessages = this.context.addAssistantMessage(
-                    currentMessages,
-                    response.content,
-                    toolCallDicts,
-                );
-
-                // Execute each tool
-                for (const tc of response.toolCalls) {
-                    toolsUsed.push(tc.name);
-                    this.currentToolsUsed.push(tc.name);
-                    console.log(`🔧 ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 100)})`);
-
-                    // Track file operations
-                    if (tc.name === 'write_file' && tc.arguments.path) {
-                        this.currentFilesCreated.push(String(tc.arguments.path));
-                    }
-                    if ((tc.name === 'edit_file' || tc.name === 'apply_patch') && tc.arguments.path) {
-                        this.currentFilesModified.push(String(tc.arguments.path));
-                    }
-                    // Security check for browse tool
-                    if (tc.name === 'browse' && tc.arguments.url) {
-                        const check = this.security.checkUrl(String(tc.arguments.url));
-                        if (!check.allowed) {
-                            if (taskId) this.db.addTaskLog(taskId, 'security', `🚫 URL Denied: ${tc.arguments.url}`);
-                            currentMessages = this.context.addToolResult(
-                                currentMessages,
-                                tc.id,
-                                tc.name,
-                                `🚫 ${check.reason}`,
-                            );
-                            continue;
-                        }
-                    }
-
-                    // Security check for exec tool
-                    if (tc.name === 'exec' && tc.arguments.command) {
-                        const check = this.security.checkCommand(String(tc.arguments.command));
-                        if (!check.allowed) {
-                            if (taskId) this.db.addTaskLog(taskId, 'security', `🚫 Command Denied: ${tc.arguments.command}`);
-                            currentMessages = this.context.addToolResult(
-                                currentMessages,
-                                tc.id,
-                                tc.name,
-                                `🚫 ${check.reason}`,
-                            );
-                            continue;
-                        }
-                    }
-
-                    const toolStart = Date.now();
-                    const result = await this.tools.execute(tc.name, tc.arguments);
-                    const toolDuration = Date.now() - toolStart;
-
-                    // Record tool call and result on timeline
-                    this.timeline.recordToolCall(tc.name, tc.arguments);
-                    this.timeline.recordToolResult(tc.name, result, toolDuration);
-
-                    // Record task log if taskId is present
-                    if (taskId) {
-                        this.db.addTaskLog(taskId, 'tool', `🔧 ${tc.name}: ${result.slice(0, 500)}`);
-                    }
-
-                    currentMessages = this.context.addToolResult(
-                        currentMessages,
-                        tc.id,
-                        tc.name,
-                        result,
+                if (hasToolCalls(response)) {
+                    // Record LLM response with tool call info
+                    this.timeline.recordLLMResponse(
+                        response.content,
+                        true,
+                        response.toolCalls.map(tc => tc.name),
                     );
-                }
-            } else {
-                // No tool calls — final response
-                finalContent = this.stripThink(response.content);
+                    // Stream progress
+                    const cleaned = this.stripThink(response.content);
+                    if (cleaned) await onProgress(cleaned);
+                    await onProgress(this.toolHint(response));
 
-                // Debug logging for empty responses
-                if (!finalContent && response.content) {
-                    console.warn(`[loop] ⚠️ Response content was stripped to null. Original: ${response.content.substring(0, 200)}`);
-                } else if (!finalContent && !response.content) {
-                    console.warn(`[loop] ⚠️ LLM returned empty response. Provider may be misconfigured.`);
-                }
+                    // Add assistant message with tool calls
+                    const toolCallDicts = response.toolCalls.map(tc => ({
+                        id: tc.id,
+                        type: 'function' as const,
+                        function: {
+                            name: tc.name,
+                            arguments: JSON.stringify(tc.arguments),
+                        },
+                    }));
 
-                // Record final LLM response
-                this.timeline.recordLLMResponse(finalContent, false, []);
-                this.timeline.recordSnapshot(currentMessages);
+                    currentMessages = this.context.addAssistantMessage(
+                        currentMessages,
+                        response.content,
+                        toolCallDicts,
+                    );
 
-                // Record completion if taskId is present
-                if (taskId && finalContent) {
-                    this.db.addTaskLog(taskId, 'agent', `✅ Final: ${finalContent.slice(0, 500)}`);
-                    this.db.updateTask(taskId, { status: 'done', completed_at: Date.now() });
+                    // Execute each tool
+                    for (const tc of response.toolCalls) {
+                        toolsUsed.push(tc.name);
+                        this.currentToolsUsed.push(tc.name);
+                        console.log(`🔧 ${tc.name}(${JSON.stringify(tc.arguments).slice(0, 100)})`);
 
-                    // Broadcast task completion for real-time UI updates
-                    const allTasks = this.db.getTasks();
-                    const completedTask = allTasks.find(t => t.id === taskId);
-                    if (completedTask) {
-                        // Note: Hook emission removed - 'task:updated' not in HookEventType
+                        // Track file operations
+                        if (tc.name === 'write_file' && tc.arguments.path) {
+                            this.currentFilesCreated.push(String(tc.arguments.path));
+                        }
+                        if ((tc.name === 'edit_file' || tc.name === 'apply_patch') && tc.arguments.path) {
+                            this.currentFilesModified.push(String(tc.arguments.path));
+                        }
+                        // Security check for browse tool
+                        if (tc.name === 'browse' && tc.arguments.url) {
+                            const check = this.security.checkUrl(String(tc.arguments.url));
+                            if (!check.allowed) {
+                                if (taskId) this.db.addTaskLog(taskId, 'security', `🚫 URL Denied: ${tc.arguments.url}`);
+                                currentMessages = this.context.addToolResult(
+                                    currentMessages,
+                                    tc.id,
+                                    tc.name,
+                                    `🚫 ${check.reason}`,
+                                );
+                                continue;
+                            }
+                        }
+
+                        // Security check for exec tool
+                        if (tc.name === 'exec' && tc.arguments.command) {
+                            const check = this.security.checkCommand(String(tc.arguments.command));
+                            if (!check.allowed) {
+                                if (taskId) this.db.addTaskLog(taskId, 'security', `🚫 Command Denied: ${tc.arguments.command}`);
+                                currentMessages = this.context.addToolResult(
+                                    currentMessages,
+                                    tc.id,
+                                    tc.name,
+                                    `🚫 ${check.reason}`,
+                                );
+                                continue;
+                            }
+                        }
+
+                        const toolStart = Date.now();
+                        const result = await this.tools.execute(tc.name, tc.arguments);
+                        const toolDuration = Date.now() - toolStart;
+
+                        // Record tool call and result on timeline
+                        this.timeline.recordToolCall(tc.name, tc.arguments);
+                        this.timeline.recordToolResult(tc.name, result, toolDuration);
+
+                        // Record task log if taskId is present
+                        if (taskId) {
+                            this.db.addTaskLog(taskId, 'tool', `🔧 ${tc.name}: ${result.slice(0, 500)}`);
+                        }
+
+                        currentMessages = this.context.addToolResult(
+                            currentMessages,
+                            tc.id,
+                            tc.name,
+                            result,
+                        );
                     }
+                } else {
+                    // No tool calls — final response
+                    finalContent = this.stripThink(response.content);
+
+                    // Debug logging for empty responses
+                    if (!finalContent && response.content) {
+                        console.warn(`[loop] ⚠️ Response content was stripped to null. Original: ${response.content.substring(0, 200)}`);
+                    } else if (!finalContent && !response.content) {
+                        console.warn(`[loop] ⚠️ LLM returned empty response. Provider may be misconfigured.`);
+                    }
+
+                    // Record final LLM response
+                    this.timeline.recordLLMResponse(finalContent, false, []);
+                    this.timeline.recordSnapshot(currentMessages);
+
+                    // Record completion if taskId is present
+                    if (taskId && finalContent) {
+                        this.db.addTaskLog(taskId, 'agent', `✅ Final: ${finalContent.slice(0, 500)}`);
+                        this.db.updateTask(taskId, { status: 'done', completed_at: Date.now() });
+
+                        // Broadcast task completion for real-time UI updates
+                        const allTasks = this.db.getTasks();
+                        const completedTask = allTasks.find(t => t.id === taskId);
+                        if (completedTask) {
+                            // Note: Hook emission removed - 'task:updated' not in HookEventType
+                        }
+                    }
+                    break;
                 }
-                break;
             }
-        }
 
-        // Complete the timeline
-        this.timeline.completeTimeline();
+            // Complete the timeline
+            this.timeline.completeTimeline();
 
-        return { content: finalContent, toolsUsed };
+            return { content: finalContent, toolsUsed };
         } catch (error) {
             // Complete timeline even on error
             this.timeline.completeTimeline();

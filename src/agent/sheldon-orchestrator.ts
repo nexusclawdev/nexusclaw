@@ -116,17 +116,37 @@ async function runPhaseWorker(
         braveApiKey?: string;
     },
     onProgress?: (msg: string) => void,
-    phaseTimeoutMs?: number,  // per-phase timeout from TimeBudget (overrides default 10m)
+    phaseTimeoutMs?: number,
 ): Promise<string> {
+    // If the provider supports agentic tasks (Claude Agent SDK), use its native loop
+    if ('runAgenticTask' in provider && typeof (provider as any).runAgenticTask === 'function') {
+        onProgress?.(`[${workerId}] 🚀 Launching autonomous agentic loop...`);
+        return await (provider as any).runAgenticTask(
+            `${systemPrompt}\n\nTask: ${task}`,
+            {
+                model: model,
+                cwd: workspace,
+                env: {
+                    ...process.env,
+                    BRAVE_API_KEY: config.braveApiKey,
+                },
+                // The SDK handles its own set of default tools (Bash, Read, Edit, etc.)
+                // which maps well to Sheldon's needs.
+            },
+            (msg: string) => onProgress?.(`[${workerId}] ${msg}`)
+        );
+    }
+
+    // Fallback to manual tool loop for other providers
     const tools = new ToolRegistry();
     tools.register(new ReadFileTool(workspace, workspace));
     tools.register(new WriteFileTool(workspace, workspace));
     tools.register(new ListDirTool(workspace, workspace));
-    tools.register(new ExecTool(workspace, 120000, true)); // v3: 2 min timeout (was 60s)
+    tools.register(new ExecTool(workspace, 120000, true));
     tools.register(new WebSearchTool(config.braveApiKey));
     tools.register(new WebFetchTool());
-    tools.register(new Context7ResolveTool());  // v3.1: Up-to-date library docs
-    tools.register(new Context7DocsTool());     // v3.1: Up-to-date library docs
+    tools.register(new Context7ResolveTool());
+    tools.register(new Context7DocsTool());
     tools.register(new FindUsagesTool(workspace));
     tools.register(new CodeAnalysisTool(workspace));
     tools.register(createApplyPatchTool(workspace));
@@ -146,30 +166,18 @@ async function runPhaseWorker(
     while (iteration < config.maxIterations) {
         if (Date.now() >= deadlineValue) {
             if (!overtimeUsed) {
-                // v3.1: Grant 2-minute overtime buffer in extreme cases
                 overtimeUsed = true;
-                deadlineValue += 120_000; // +2 mins
+                deadlineValue += 120_000;
                 messages = [
                     ...messages,
-                    { role: 'user', content: `🚨 SYSTEM OVERRIDE: TIME EXPIRED! You have been granted a FINAL 2-MINUTE OVERTIME BUFFER to finish your current files. DO NOT START NEW FEATURES. Just wrap up what you are currently writing. If you fail to finish in 2 minutes, you will be forcefully terminated.` }
+                    { role: 'user', content: `🚨 SYSTEM OVERRIDE: TIME EXPIRED! You have been granted a FINAL 2-MINUTE OVERTIME BUFFER to finish your current files.` }
                 ];
             } else {
-                break; // Force exit after overtime expires
+                break;
             }
         }
 
         iteration++;
-
-        // v3.1: Hard deadline enforcement — inject time pressure at 75% elapsed
-        const elapsed = Date.now() - (deadlineValue - timeoutMs);
-        const remaining = deadlineValue - Date.now();
-        if (remaining < timeoutMs * 0.25 && iteration > 1) {
-            // Inject urgency into the conversation
-            messages = [
-                ...messages,
-                { role: 'user', content: `⏰ URGENT: Only ${Math.round(remaining / 60_000)} minutes remaining! Finish ALL remaining files NOW. Write complete code, do not skip any file. If you have unfinished work, PRIORITIZE creating all files over polishing existing ones.` },
-            ];
-        }
 
         const response = await provider!.chat(
             messages,
@@ -198,7 +206,7 @@ async function runPhaseWorker(
                 response.toolCalls.map(async (tc) => {
                     try {
                         const result = await tools.execute(tc.name, tc.arguments);
-                        return { id: tc.id, name: tc.name, result: result.slice(0, 15000) }; // v3: increased output cap
+                        return { id: tc.id, name: tc.name, result: result.slice(0, 15000) };
                     } catch (err) {
                         return { id: tc.id, name: tc.name, result: `Error: ${err instanceof Error ? err.message : String(err)}` };
                     }

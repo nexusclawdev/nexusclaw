@@ -4,7 +4,7 @@
 
 import { LLMProvider } from './base.js';
 import { OpenAIProvider } from './openai.js';
-import { AnthropicProvider } from './anthropic.js';
+import { ClaudeAgentProvider } from './claude-agent.js';
 import { OpenRouterProvider } from './openrouter.js';
 import { FailoverProvider } from './failover.js';
 import { RetryProvider } from './retry.js';
@@ -29,7 +29,7 @@ export function createProvider(config: Config): LLMProvider {
 
     // Custom provider (highest priority - user explicitly configured)
     if ((providers as any).custom?.enabled && (providers as any).custom?.baseURL) {
-        return wrapIfNeeded(new OpenAIProvider(
+        return wrapIfNeeded(new ClaudeAgentProvider(
             (providers as any).custom.apiKey || 'not-required',
             (providers as any).custom.baseURL
         ), 'custom');
@@ -40,7 +40,7 @@ export function createProvider(config: Config): LLMProvider {
     }
 
     if (providers.anthropic?.enabled && providers.anthropic?.apiKey) {
-        return wrapIfNeeded(new AnthropicProvider(providers.anthropic.apiKey), 'anthropic');
+        return wrapIfNeeded(new ClaudeAgentProvider(providers.anthropic.apiKey), 'anthropic');
     }
 
     // Google Gemini — OpenAI-compatible endpoint
@@ -64,7 +64,7 @@ export function createProvider(config: Config): LLMProvider {
         return wrapIfNeeded(new OpenRouterProvider(process.env.OPENROUTER_API_KEY), 'openrouter');
     }
     if (process.env.ANTHROPIC_API_KEY) {
-        return wrapIfNeeded(new AnthropicProvider(process.env.ANTHROPIC_API_KEY), 'anthropic');
+        return wrapIfNeeded(new ClaudeAgentProvider(process.env.ANTHROPIC_API_KEY), 'anthropic');
     }
     if (process.env.GEMINI_API_KEY) {
         return wrapIfNeeded(new OpenAIProvider(

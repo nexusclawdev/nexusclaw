@@ -57,7 +57,8 @@
       "Bash(findstr :3100)",
       "Bash(xargs -I {} taskkill /F /PID {})",
       "Bash(dir:*)",
-      "Bash(xargs kill)"
+      "Bash(xargs kill)",
+      "Bash(PROJECT_COMPLETION_REPORT.md:*)"
     ]
   },
   "outputStyle": "default"

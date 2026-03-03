@@ -32,6 +32,7 @@
     "test:ci": "pnpm run test:web --coverage && pnpm run test:api --coverage && pnpm run test:e2e"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.98.0",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "lucide-react": "^0.511.0",
